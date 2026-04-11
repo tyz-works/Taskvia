@@ -1,25 +1,50 @@
 # Taskvia - CLAUDE.md
 
-マルチエージェント向けカンバン + Web承認システム。
-エージェントのツール実行をスマホのWebUIで承認・拒否できる。
+マルチエージェント向け承認カンバン + ナレッジログ収集システム。
+Claude Code の PreToolUse hook からツール実行の承認リクエストを受け取り、
+スマホの WebUI で Approve / Deny する。加えてエージェントの気づき・改善案を
+Redis にバッファし、Obsidian vault に日次で flush する。
 
 ## プロジェクト概要
 
 - **リポジトリ**: `tyz-works/taskvia` (public)
 - **Vercel URL**: `taskvia.vercel.app`
-- **スタック**: Next.js 15 (App Router) + TypeScript + Upstash Redis
+- **スタック**: Next.js 16 (App Router) + React 19 + TypeScript + Tailwind CSS v4 + Upstash Redis
 - **通知**: ntfy.sh
+- **Vault 連携**: GitHub Contents API (`tyz-works/tkworks-vault`)
 
 ## システム構成
 
 ```
-エージェント（Claude Code）
-   ↓ PreToolUse hook → POST /api/request
-[Vercel Functions]
-   ↓ ntfy.sh に通知
-[スマホ] → 通知タップ → WebUI
-   ↓ POST /api/approve or /api/deny
-エージェント側 hookが polling → exit 0 or exit 1
+エージェント (Claude Code)
+   ↓ PreToolUse hook (hooks/pre-tool-use.sh)
+   ↓ stdin から {tool_name, tool_input} を受け取る
+   ↓
+POST /api/request  ──→  Upstash Redis (approval:${id} + approval:index)
+                   ──→  ntfy.sh にプッシュ通知
+                                         ↓
+                                    [スマホ]
+                                         ↓
+                                    WebUI (/)
+                                         ↓ 承認/拒否タップ
+                                    POST /api/approve/[id]
+                                    POST /api/deny/[id]
+                                         ↓
+hook が /api/status/[id] を 1秒間隔でポーリング (最大 600 秒)
+   ↓
+status === "approved"  →  exit 0 (ツール実行)
+status === "denied"    →  exit 1 (ツール拒否)
+not_found / timeout    →  exit 1
+```
+
+別フロー: ナレッジログ
+
+```
+エージェント → POST /api/log → Redis (agent:logs list)
+                                         ↓ (任意タイミングで flush)
+                                    POST /api/flush-logs
+                                         ↓ GitHub Contents API
+                                    tkworks-vault/agent-logs/YYYY-MM-DD-knowledge.md
 ```
 
 ## ディレクトリ構成
@@ -28,31 +53,58 @@
 src/
   app/
     api/
-      health/route.ts        疎通確認
-      request/route.ts       承認リクエスト投入 ✅
-      status/[id]/route.ts   ステータスpolling ✅
-      approve/[id]/route.ts  承認 ✅
-      deny/[id]/route.ts     拒否 ✅
-      log/route.ts           ナレッジログ投入 🚧 未実装
-      flush-logs/route.ts    KV→Obsidian push 🚧 未実装
-    page.tsx                 カンバンUI 🚧 未実装
+      health/route.ts          Redis 疎通確認 (認証なし)
+      request/route.ts         承認リクエスト投入 + ntfy 通知
+      status/[id]/route.ts     ステータスポーリング
+      approve/[id]/route.ts    承認エンドポイント
+      deny/[id]/route.ts       拒否エンドポイント
+      log/route.ts             ナレッジログ投入
+      flush-logs/route.ts      agent:logs → Obsidian vault へ push
+      cards/route.ts           カード一覧取得 (カンバン UI 用・認証なし)
+    layout.tsx                 ルートレイアウト (Geist フォント)
+    page.tsx                   カンバン WebUI (3 列 + 承認モーダル)
+  lib/
+    auth.ts                    Bearer トークン認証ヘルパー
+hooks/
+  pre-tool-use.sh              Claude Code PreToolUse hook 本体
 ```
 
 ## Upstash Redis のデータ構造
 
 ```
-approval:{id}   承認リクエスト1件
-                { id, tool, agent, task_title, task_id, priority, status, created_at }
-                TTL: 600秒
-                status: "pending" | "approved" | "denied"
+approval:{id}           承認リクエスト 1 件 (JSON 文字列)
+                        { id, tool, agent, task_title, task_id, priority,
+                          status, created_at }
+                        TTL: 600 秒
+                        status: "pending" | "approved" | "denied"
 
-agent:logs      List型。ナレッジ・改善案のバッファ
-                { type, content, task_title, task_id, agent, timestamp }
-                type: "knowledge" | "improvement" | "work"
-                flush後に削除する（pushしてから削除の順番を守ること）
+approval:index          承認リクエスト id の List (lpush される)
+                        /api/cards が先頭 100 件を取得して UI に表示
+
+agent:logs              ナレッジ・改善案・作業ログの List (lpush される)
+                        { type, content, task_title, task_id, agent, timestamp }
+                        type: "knowledge" | "improvement" | "work"
+                        flush 時に knowledge / improvement のみ push、
+                        push 成功後に list 全体を del
 ```
 
-## 実装済みAPIの仕様
+## 認証
+
+`src/lib/auth.ts` の `isAuthorized()` ヘルパーが全エンドポイントで使われる
+(`/api/health` と `/api/cards` を除く)。
+
+- 環境変数 `TASKVIA_TOKEN` **が未設定なら全リクエスト通過** (オープンモード)
+- 設定済みなら `Authorization: Bearer ${TASKVIA_TOKEN}` ヘッダが必須
+- 不一致は `401 { error: "Unauthorized" }`
+
+**注意**: `/api/cards` は UI (同一オリジン) から呼ばれる前提で認証されていない。
+公開ドメインで動かす場合、UI 側に認証レイヤーを追加するか、`/api/cards` にも
+`isAuthorized` を追加することを検討する。
+
+## API 仕様
+
+### GET /api/health
+Redis 接続確認 (認証なし)。`{ "status": "ok" }` を返す。
 
 ### POST /api/request
 エージェントから承認リクエストを投入する。
@@ -60,8 +112,8 @@ agent:logs      List型。ナレッジ・改善案のバッファ
 **リクエスト**
 ```json
 {
-  "tool": "Bash(ls -la)",
-  "agent": "Worker-A",
+  "tool": "Bash(oci db ...)",
+  "agent": "Kai",
   "task_title": "Run OL9 compatibility check",
   "task_id": "card-005",
   "priority": "high"
@@ -73,155 +125,177 @@ agent:logs      List型。ナレッジ・改善案のバッファ
 { "id": "pOdAAna-gKzdO2i8KnYZO" }
 ```
 
+副作用:
+- `approval:{id}` を Redis にセット (TTL 600 秒)
+- `approval:index` に id を lpush
+- `NTFY_TOPIC` が設定されていれば ntfy.sh にプッシュ通知
+  - `Priority: high` 固定
+  - `Tags`: `priority === "high"` なら `rotating_light`、それ以外は `bell`
+  - `Click` はトップページ (`https://taskvia.vercel.app`) にハードコード
+
 ### GET /api/status/[id]
-hookスクリプトがpollingで叩く。
+hook がポーリングで叩く。
 
 **レスポンス**
 ```json
 { "status": "pending", "card": { ... } }
 ```
 
+TTL 切れは `404 { "status": "not_found" }` を返す (hook は拒否扱い)。
+
 ### POST /api/approve/[id] / POST /api/deny/[id]
-WebUIから叩く。statusを更新する。
+WebUI から叩く。対応する status に更新する。
 
 **レスポンス**
 ```json
 { "ok": true }
 ```
 
-## 未実装: POST /api/log
-
-ナレッジ・改善案をKVに保存する。
+### POST /api/log
+エージェントのナレッジ・改善案・作業ログを投入する。
 
 **リクエスト**
 ```json
 {
   "type": "knowledge",
-  "content": "OL9ではmod_jkが非推奨、mod_proxyへ移行推奨",
+  "content": "OL9 では mod_jk が非推奨、mod_proxy へ移行推奨",
   "task_title": "Run OL9 compatibility check",
   "task_id": "card-005",
-  "agent": "Worker-A"
+  "agent": "Kai"
 }
 ```
 
-実装方針: `redis.lpush("agent:logs", JSON.stringify(entry))`
+`type` を省略すると `"work"` として保存される。
 
-## 未実装: POST /api/flush-logs
+### POST /api/flush-logs
+`agent:logs` を読み出して Obsidian vault (`tkworks-vault`) に push する。
+`GITHUB_TOKEN` 必須 (未設定時は 503)。
 
-KVのナレッジ・改善案をObsidian vault（tyz-works/tkworks-vault）にpushする。
+処理フロー:
+1. `agent:logs` の全件を `lrange`
+2. `type` が `knowledge` / `improvement` のみ抽出 (`work` は破棄)
+3. `task_id | task_title` でグループ化して日次 Markdown を整形
+4. GitHub Contents API で `agent-logs/YYYY-MM-DD-knowledge.md` に PUT
+   - 既存ファイルがあれば `sha` を付けて更新
+5. **push 成功を確認してから** `redis.del("agent:logs")`
 
-実装方針:
-1. `redis.lrange("agent:logs", 0, -1)` で全件取得
-2. typeが `knowledge` / `improvement` のみ抽出（`work` は捨てる）
-3. 日付ごとのMarkdownに整形（フォーマットは下記参照）
-4. GitHub API（`GITHUB_TOKEN`環境変数）でtkworks-vaultにpush
-5. push成功を確認してから `redis.del("agent:logs")`
-
-**Obsidianの出力フォーマット**
+**Obsidian 出力フォーマット**
 ```markdown
 # Agent Knowledge Log - 2026-04-09
 
 ## 💡 Run OL9 compatibility check (card-005)
-> Worker-A · 09:48
+> Kai · 09:48
 
-OL9ではmod_jkが非推奨、mod_proxyへ移行推奨。
+OL9 では mod_jk が非推奨、mod_proxy へ移行推奨。
 
 ---
 
 ## 🔧 Clone Autonomous DB staging (card-004)
-> Worker-B · 09:52
+> Luca · 09:52
 
-ECPUモデルではcomputeCountの明示指定が必須。
+ECPU モデルでは computeCount の明示指定が必須。
 
 ---
 ```
 
-vault内パス: `agent-logs/YYYY-MM-DD-knowledge.md`
+アイコン: `knowledge` → 💡, `improvement` → 🔧
 
-## 未実装: カンバンWebUI
+### GET /api/cards
+カンバン UI から呼ばれる。`approval:index` の先頭 100 件を `mget` で取得して
+カード配列を返す。認証なし。
 
-`src/app/page.tsx` にカンバンボードを実装する。
-
-参照実装: `kanban-approver.jsx`（Claude.aiとの会話で作成済みのプロトタイプ）
-
-**必要な機能**
-- 4列カンバン（Backlog / In Progress / Awaiting Approval / Done）
-- Awaiting Approvalのカードをタップ → 承認モーダル
-- 承認モーダルにカウントダウンタイマー
-- Approve → `/api/approve/[id]` POST → Done列へ
-- Deny → `/api/deny/[id]` POST → Backlog列へ
-- ログパネル（作業ログ / ナレッジ / 改善案 タブ切り替え）
-- SSEでリアルタイムストリーミング表示
-
-## 未実装: hookスクリプト（エージェント側）
-
-`hooks/pre-tool-use.sh` として作成する。
-
-```bash
-#!/bin/bash
-# PreToolUse hook
-# Claude Codeの settings.json に登録して使う
-
-TASKVIA_URL="https://taskvia.vercel.app"
-TASKVIA_TOKEN="${TASKVIA_TOKEN}"  # 環境変数から取得
-
-CARD_ID=$(curl -s -X POST "$TASKVIA_URL/api/request" \
-  -H "Authorization: Bearer $TASKVIA_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "{\"tool\": \"$TOOL_NAME\", \"agent\": \"$AGENT_NAME\"}" \
-  | jq -r .id)
-
-for i in $(seq 600); do
-  STATUS=$(curl -s \
-    -H "Authorization: Bearer $TASKVIA_TOKEN" \
-    "$TASKVIA_URL/api/status/$CARD_ID" | jq -r .status)
-  [ "$STATUS" = "approved" ] && exit 0
-  [ "$STATUS" = "denied" ]   && exit 1
-  sleep 1
-done
-exit 1
+**レスポンス**
+```json
+{ "cards": [ { "id": "...", "tool": "...", "status": "pending", ... } ] }
 ```
 
-## 未実装: ntfy通知
+## カンバン WebUI (`src/app/page.tsx`)
 
-`/api/request` のPOST処理内でntfyに通知を送る。
+スマホ優先の Tailwind v4 UI。
 
-```typescript
-await fetch(`https://ntfy.sh/${process.env.NTFY_TOPIC}`, {
-  method: "POST",
-  body: `承認待ち: ${card.tool}`,
-  headers: {
-    "Title": "Agent Approval Required",
-    "Priority": "high",
-    "Click": `https://taskvia.vercel.app/approve/${card.id}`,
-  },
-});
+- **3 列構成** (旧設計の 4 列ではなく 3 列に収束):
+  - `Backlog` (`status === "denied"`)
+  - `Awaiting Approval` (`status === "pending"`)
+  - `Done` (`status === "approved"`)
+- `/api/cards` を **3 秒間隔でポーリング** (SSE は未採用)
+- pending カードをタップ → 承認モーダルが開く
+- 承認モーダル: TTL カウントダウン進捗バー + Deny / Approve ボタン
+- ヘッダーに pending 件数のバッジ (パルスアニメ付き)
+
+## PreToolUse hook (`hooks/pre-tool-use.sh`)
+
+Claude Code の PreToolUse hook として動く bash スクリプト。
+
+### 動作
+1. stdin から hook ペイロード `{tool_name, tool_input}` を読む (jq で parse)
+2. Bash/Write/Edit は `priority=high`、それ以外は `medium`
+3. `POST /api/request` でカードを作成
+4. `GET /api/status/{id}` を 1 秒間隔で最大 600 秒ポーリング
+5. `approved` → `exit 0` (ツール実行許可)
+   `denied` / `not_found` / timeout → `exit 1` (ツール拒否)
+
+### Claude Code 側の設定例
+
+`~/.claude/settings.json`:
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "/absolute/path/to/taskvia/hooks/pre-tool-use.sh" }
+        ]
+      }
+    ]
+  }
+}
 ```
 
-環境変数: `NTFY_TOPIC`（Vercelの環境変数に追加すること）
+### 環境変数 (hook 側)
 
-## 環境変数
-
-| 変数名 | 用途 | 設定場所 |
+| 変数名 | 用途 | デフォルト |
 |---|---|---|
-| `UPSTASH_REDIS_REST_URL` | Redis接続URL | Vercel（自動注入済み） |
-| `UPSTASH_REDIS_REST_TOKEN` | Redis認証トークン | Vercel（自動注入済み） |
-| `NTFY_TOPIC` | ntfyトピック名 | Vercel環境変数に追加が必要 |
-| `TASKVIA_TOKEN` | API認証トークン | Vercel環境変数に追加が必要 |
-| `GITHUB_TOKEN` | vault push用 | Vercel環境変数に追加が必要 |
+| `TASKVIA_URL` | Taskvia ベース URL | `https://taskvia.vercel.app` |
+| `TASKVIA_TOKEN` | Bearer トークン (未設定なら無認証) | (空) |
+| `AGENT_NAME` | エージェント識別子 | `hostname -s` |
+| `TASK_TITLE` | 現在のタスク名 | `Untitled` |
+| `TASK_ID` | 現在のタスク ID | `null` |
+
+## 環境変数 (Vercel 側)
+
+| 変数名 | 用途 | 必須 |
+|---|---|---|
+| `UPSTASH_REDIS_REST_URL` | Redis 接続 URL | ✅ (Upstash 統合で自動注入) |
+| `UPSTASH_REDIS_REST_TOKEN` | Redis 認証トークン | ✅ (同上) |
+| `NTFY_TOPIC` | ntfy プッシュ通知トピック | 任意 (未設定なら通知スキップ) |
+| `TASKVIA_TOKEN` | API Bearer 認証 | 任意 (未設定なら無認証) |
+| `GITHUB_TOKEN` | vault push 用 PAT (contents:write) | `/api/flush-logs` を使うなら必須 |
 
 ## 注意事項
 
-- Next.js 15ではparamsが非同期。`{ params }: { params: Promise<{ id: string }> }` で受け取り `await params` すること
-- flush-logsはpushしてから削除の順番を守ること（逆にするとログ消失）
-- TASKVIA_TOKENの認証は未実装。実装する際はすべてのAPIルートに追加すること
+- **Next.js 16 では params が非同期**。
+  `{ params }: { params: Promise<{ id: string }> }` で受け取り `await params` する
+- `/api/flush-logs` は **push 成功後に redis.del** の順番を厳守する
+  (逆にするとログ消失)
+- `/api/cards` は認証がないので、公開ドメインでは UI 前段に認証を入れること
+- `TASKVIA_TOKEN` 未設定時はオープンモード (全リクエスト通過)。
+  本番では必ず設定する
 
-## 次にやること
+## 既知の積み残し (未実装)
 
-1. `NTFY_TOPIC` を Vercel 環境変数に追加
-2. `/api/request` にntfy通知を組み込む
-3. カンバンWebUIを実装（`src/app/page.tsx`）
-4. `/api/log` を実装
-5. `/api/flush-logs` を実装（GitHub Token取得が必要）
-6. hookスクリプトを実装・テスト
-7. TASKVIA_TOKEN認証を全APIに追加
+CLAUDE.md の古い版で "次にやること" として挙げていた項目のうち、
+**まだ実装されていないもの**:
+
+- **SSE ストリーミング**: 現在は 3 秒ポーリング。SSE / WebSocket 未採用
+- **ログ閲覧 UI**: `agent:logs` を閲覧するタブ (作業ログ / ナレッジ / 改善案) は未実装
+- **`/api/flush-logs` の自動実行**: 現状は手動 POST のみ。cron / Vercel Cron で日次実行は未設定
+- **`/api/cards` の認証**: UI からの同一オリジン呼び出し前提で無認証
+- **`layout.tsx` の metadata**: デフォルトの `"Create Next App"` のまま
+
+## 次にやること (候補)
+
+1. Vercel Cron で `/api/flush-logs` を日次実行
+2. `/api/cards` に Bearer 認証 or Session Cookie を追加
+3. ログ閲覧タブを UI に追加 (`agent:logs` を lrange で表示)
+4. `layout.tsx` の metadata を "Taskvia — Agent Approval Board" 等に更新
