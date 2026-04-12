@@ -1,41 +1,19 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { submitRequest, fetchRequests as fetchRequestsAction, approveCard, denyCard } from "./actions";
+import {
+  submitRequest,
+  fetchRequests as fetchRequestsAction,
+  fetchMissions,
+  fetchMissionTasks,
+  type Mission,
+  type Task,
+} from "./actions";
+import type { MissionRequest } from "./api/requests/route";
 
-// Smart Polling の間隔 (ms)
-// - pending カードあり: 2 秒 (体感即時)
-// - pending なし: 15 秒 (待機モード)
-// - タブ非表示時は完全停止
-//
-// Upstash Free プラン (500K commands/month) の節約のため、Board が
-// active で pending を見張っている時だけ頻繁に叩く。
-const POLL_ACTIVE_MS = 2000;
-const POLL_IDLE_MS = 15000;
-
-interface Card {
-  id: string;
-  tool: string;
-  agent: string;
-  task_title: string;
-  task_id: string | null;
-  priority: "high" | "medium" | "low";
-  status: "pending" | "approved" | "denied";
-  created_at: string;
-}
-
-interface MissionRequest {
-  id: string;
-  title: string;
-  body: string;
-  priority: "high" | "medium" | "low";
-  skills: string[];
-  target_dir: string;
-  deadline_note: string;
-  status: "pending" | "processing" | "done" | "rejected";
-  created_at: string;
-  processed_at: string | null;
-}
+// Smart Polling intervals (ms)
+const POLL_ACTIVE_MS = 5000;
+const POLL_IDLE_MS = 20000;
 
 interface LogEntry {
   type: "knowledge" | "improvement" | "work";
@@ -47,18 +25,19 @@ interface LogEntry {
 }
 
 type Tab = "board" | "logs";
+
 const PRIORITY_BADGE: Record<string, string> = {
   high: "bg-red-500/20 text-red-400 border-red-500/30",
   medium: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
   low: "bg-zinc-700 text-zinc-400 border-zinc-600",
 };
 
-const REQUEST_STATUS_STYLE: Record<string, string> = {
-  pending: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-  processing: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  done: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-  rejected: "bg-red-500/20 text-red-400 border-red-500/30",
-};
+const TASK_COLUMNS: { status: Task["status"]; label: string; color: string; dot: string }[] = [
+  { status: "blocked",     label: "Blocked",     color: "text-red-400",     dot: "bg-red-500" },
+  { status: "pending",     label: "Backlog",      color: "text-zinc-400",    dot: "bg-zinc-500" },
+  { status: "in_progress", label: "In Progress",  color: "text-blue-400",    dot: "bg-blue-400" },
+  { status: "done",        label: "Done",         color: "text-emerald-400", dot: "bg-emerald-400" },
+];
 
 const ALL_SKILLS = [
   "ops", "bash", "code", "python", "typescript",
@@ -77,131 +56,71 @@ const LOG_TYPE_COLOR: Record<LogEntry["type"], string> = {
   work: "border-zinc-700 bg-zinc-800/50",
 };
 
-function ttlSeconds(createdAt: string) {
-  return Math.max(0, 600 - Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000));
-}
+// ─── TaskCard ──────────────────────────────────────────────────────────────
 
-function CardItem({ card, onClick }: { card: Card; onClick?: () => void }) {
-  const [ttl, setTtl] = useState(ttlSeconds(card.created_at));
-
-  useEffect(() => {
-    if (card.status !== "pending") return;
-    const t = setInterval(() => setTtl(ttlSeconds(card.created_at)), 1000);
-    return () => clearInterval(t);
-  }, [card]);
-
+function TaskCard({ task }: { task: Task }) {
   return (
-    <div
-      onClick={onClick}
-      className={`rounded-xl border p-3 text-sm space-y-1.5 ${
-        card.status === "pending"
-          ? "border-yellow-500/40 bg-yellow-500/5 cursor-pointer hover:bg-yellow-500/10 active:scale-[0.98]"
-          : card.status === "approved"
-          ? "border-emerald-500/30 bg-emerald-500/5"
-          : "border-zinc-700 bg-zinc-800/50"
-      }`}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <code className="text-xs text-zinc-300 truncate flex-1">{card.tool}</code>
-        <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${PRIORITY_BADGE[card.priority]}`}>
-          {card.priority}
+    <div className="rounded-xl border border-zinc-700/60 bg-zinc-900 p-3 space-y-2 text-sm">
+      {/* Title + priority */}
+      <div className="flex items-start gap-2">
+        <span className="text-zinc-100 text-xs font-medium leading-snug flex-1">{task.title}</span>
+        <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border font-medium ${PRIORITY_BADGE[task.priority]}`}>
+          {task.priority}
         </span>
       </div>
-      <div className="text-zinc-500 text-xs truncate">{card.task_title}</div>
+
+      {/* Skills */}
+      {task.skills.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {task.skills.map((s) => (
+            <span key={s} className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-400">
+              {s}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Footer: id + assignee */}
       <div className="flex items-center justify-between text-[11px] text-zinc-600">
-        <span>{card.agent}</span>
-        {card.status === "pending" && (
-          <span className={ttl < 60 ? "text-red-400" : "text-zinc-500"}>
-            {String(Math.floor(ttl / 60)).padStart(2, "0")}:{String(ttl % 60).padStart(2, "0")}
-          </span>
+        <code>{task.id}</code>
+        {task.assignee ? (
+          <span className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">{task.assignee}</span>
+        ) : (
+          <span className="text-zinc-700 italic">unassigned</span>
         )}
       </div>
     </div>
   );
 }
 
-function ApprovalModal({
-  card,
-  onApprove,
-  onDeny,
-  onClose,
+// ─── MissionSelector ───────────────────────────────────────────────────────
+
+function MissionSelector({
+  missions,
+  selected,
+  onChange,
 }: {
-  card: Card;
-  onApprove: () => void;
-  onDeny: () => void;
-  onClose: () => void;
+  missions: Mission[];
+  selected: string | null;
+  onChange: (slug: string | null) => void;
 }) {
-  const [ttl, setTtl] = useState(ttlSeconds(card.created_at));
-  const pct = (ttl / 600) * 100;
-
-  useEffect(() => {
-    const t = setInterval(() => setTtl(ttlSeconds(card.created_at)), 1000);
-    return () => clearInterval(t);
-  }, [card]);
-
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="w-full max-w-sm bg-zinc-900 border border-zinc-700 rounded-2xl overflow-hidden shadow-2xl">
-        {/* TTL progress bar */}
-        <div className="h-1 bg-zinc-800">
-          <div
-            className={`h-full transition-all duration-1000 ${ttl < 60 ? "bg-red-500" : "bg-yellow-500"}`}
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-
-        <div className="p-5 space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <h2 className="text-white font-semibold text-base leading-snug">承認リクエスト</h2>
-            <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 text-lg leading-none">✕</button>
-          </div>
-
-          <div className="space-y-2">
-            <div className="bg-zinc-800 rounded-lg px-3 py-2">
-              <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">Tool</div>
-              <code className="text-sm text-zinc-100 break-all">{card.tool}</code>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="bg-zinc-800 rounded-lg px-3 py-2">
-                <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">Agent</div>
-                <div className="text-sm text-zinc-200 truncate">{card.agent}</div>
-              </div>
-              <div className="bg-zinc-800 rounded-lg px-3 py-2">
-                <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">Priority</div>
-                <div className={`text-sm font-medium ${card.priority === "high" ? "text-red-400" : card.priority === "medium" ? "text-yellow-400" : "text-zinc-400"}`}>
-                  {card.priority}
-                </div>
-              </div>
-            </div>
-            <div className="bg-zinc-800 rounded-lg px-3 py-2">
-              <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">Task</div>
-              <div className="text-sm text-zinc-200">{card.task_title}</div>
-            </div>
-          </div>
-
-          <div className="text-center text-zinc-500 text-xs">
-            タイムアウトまで {String(Math.floor(ttl / 60)).padStart(2, "0")}:{String(ttl % 60).padStart(2, "0")}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={onDeny}
-              className="py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 font-semibold hover:bg-red-500/20 active:scale-95 transition-all"
-            >
-              Deny
-            </button>
-            <button
-              onClick={onApprove}
-              className="py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold hover:bg-emerald-500/20 active:scale-95 transition-all"
-            >
-              Approve
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <select
+      value={selected ?? ""}
+      onChange={(e) => onChange(e.target.value || null)}
+      className="bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs rounded-lg px-2.5 py-1.5 outline-none focus:border-zinc-500 transition-colors max-w-[200px] truncate"
+    >
+      <option value="">All missions</option>
+      {missions.map((m) => (
+        <option key={m.slug} value={m.slug}>
+          {m.title}
+        </option>
+      ))}
+    </select>
   );
 }
+
+// ─── RequestFormModal ──────────────────────────────────────────────────────
 
 function RequestFormModal({
   onClose,
@@ -219,34 +138,20 @@ function RequestFormModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const toggleSkill = (skill: string) => {
-    setSkills((prev) =>
-      prev.includes(skill) ? prev.filter((s) => s !== skill) : [...prev, skill]
-    );
-  };
+  const toggleSkill = (skill: string) =>
+    setSkills((prev) => prev.includes(skill) ? prev.filter((s) => s !== skill) : [...prev, skill]);
 
   const handleSubmit = async () => {
     if (!title.trim()) { setError("タイトルを入力してください"); return; }
     if (!body.trim()) { setError("依頼内容を入力してください"); return; }
-
     setSubmitting(true);
     setError(null);
-
     try {
       const result = await submitRequest({
-        title: title.trim(),
-        body: body.trim(),
-        priority,
-        skills,
-        target_dir: targetDir.trim(),
-        deadline_note: deadlineNote.trim(),
+        title: title.trim(), body: body.trim(), priority,
+        skills, target_dir: targetDir.trim(), deadline_note: deadlineNote.trim(),
       });
-
-      if ("error" in result) {
-        setError(result.error);
-        return;
-      }
-
+      if ("error" in result) { setError(result.error); return; }
       onSubmitted(result.id);
     } catch {
       setError("ネットワークエラーが発生しました");
@@ -264,115 +169,69 @@ function RequestFormModal({
             <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 text-lg leading-none">✕</button>
           </div>
 
-          {/* Title */}
           <div className="bg-zinc-800 rounded-lg px-3 py-2">
-            <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">
-              タイトル <span className="text-red-400">*</span>
-            </div>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
+            <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">タイトル <span className="text-red-400">*</span></div>
+            <input value={title} onChange={(e) => setTitle(e.target.value)}
               placeholder="例: ログビューアにフィルタ機能を追加"
-              className="w-full bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-600"
-            />
+              className="w-full bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-600" />
           </div>
 
-          {/* Body */}
           <div className="bg-zinc-800 rounded-lg px-3 py-2">
-            <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">
-              依頼内容 <span className="text-red-400">*</span>
-            </div>
-            <textarea
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              placeholder="詳細な依頼内容を記載してください"
-              rows={4}
-              className="w-full bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-600 resize-none"
-            />
+            <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">依頼内容 <span className="text-red-400">*</span></div>
+            <textarea value={body} onChange={(e) => setBody(e.target.value)}
+              placeholder="詳細な依頼内容を記載してください" rows={4}
+              className="w-full bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-600 resize-none" />
           </div>
 
-          {/* Priority */}
           <div>
             <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5">優先度</div>
             <div className="flex gap-2">
               {(["high", "medium", "low"] as const).map((p) => (
-                <button
-                  key={p}
-                  onClick={() => setPriority(p)}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                    priority === p
-                      ? PRIORITY_BADGE[p]
-                      : "bg-zinc-800 text-zinc-500 border-zinc-700 hover:border-zinc-500"
-                  }`}
-                >
+                <button key={p} onClick={() => setPriority(p)}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${priority === p ? PRIORITY_BADGE[p] : "bg-zinc-800 text-zinc-500 border-zinc-700 hover:border-zinc-500"}`}>
                   {p}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Skills */}
           <div>
             <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5">スキル</div>
             <div className="flex flex-wrap gap-1.5">
               {ALL_SKILLS.map((skill) => (
-                <button
-                  key={skill}
-                  onClick={() => toggleSkill(skill)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all ${
-                    skills.includes(skill)
-                      ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                      : "bg-zinc-800 text-zinc-500 border-zinc-700 hover:border-zinc-500"
-                  }`}
-                >
+                <button key={skill} onClick={() => toggleSkill(skill)}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all ${skills.includes(skill) ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" : "bg-zinc-800 text-zinc-500 border-zinc-700 hover:border-zinc-500"}`}>
                   {skill}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Target Dir */}
           <div className="bg-zinc-800 rounded-lg px-3 py-2">
             <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">target_dir（任意）</div>
-            <input
-              value={targetDir}
-              onChange={(e) => setTargetDir(e.target.value)}
+            <input value={targetDir} onChange={(e) => setTargetDir(e.target.value)}
               placeholder="/Users/tyz/workspace/..."
-              className="w-full bg-transparent text-sm text-zinc-400 outline-none placeholder:text-zinc-600 font-mono"
-            />
+              className="w-full bg-transparent text-sm text-zinc-400 outline-none placeholder:text-zinc-600 font-mono" />
           </div>
 
-          {/* Deadline Note */}
           <div className="bg-zinc-800 rounded-lg px-3 py-2">
             <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">締切メモ（任意）</div>
-            <input
-              value={deadlineNote}
-              onChange={(e) => setDeadlineNote(e.target.value)}
+            <input value={deadlineNote} onChange={(e) => setDeadlineNote(e.target.value)}
               placeholder="例: 今週中に"
-              className="w-full bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-600"
-            />
+              className="w-full bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-600" />
           </div>
 
-          {/* Error */}
           {error && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-sm text-red-400">
-              {error}
-            </div>
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-sm text-red-400">{error}</div>
           )}
 
-          {/* Buttons */}
           <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={onClose}
-              className="py-3 rounded-xl bg-zinc-700/50 border border-zinc-600 text-zinc-400 font-semibold hover:bg-zinc-700 active:scale-95 transition-all"
-            >
+            <button onClick={onClose}
+              className="py-3 rounded-xl bg-zinc-700/50 border border-zinc-600 text-zinc-400 font-semibold hover:bg-zinc-700 active:scale-95 transition-all">
               キャンセル
             </button>
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              className="py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold hover:bg-emerald-500/20 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
+            <button onClick={handleSubmit} disabled={submitting}
+              className="py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold hover:bg-emerald-500/20 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
               {submitting ? "送信中..." : "依頼を送信"}
             </button>
           </div>
@@ -382,6 +241,8 @@ function RequestFormModal({
   );
 }
 
+// ─── Toast ─────────────────────────────────────────────────────────────────
+
 function Toast({ message, onDone }: { message: string; onDone: () => void }) {
   useEffect(() => {
     const t = setTimeout(onDone, 3000);
@@ -389,36 +250,22 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
   }, [onDone]);
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-zinc-800 border border-zinc-600 text-zinc-100 text-sm px-4 py-2.5 rounded-xl shadow-2xl animate-fade-in">
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-zinc-800 border border-zinc-600 text-zinc-100 text-sm px-4 py-2.5 rounded-xl shadow-2xl">
       {message}
     </div>
   );
 }
 
-const COLUMNS = [
-  { status: "denied",  label: "Backlog",           color: "text-zinc-400",   dot: "bg-zinc-500" },
-  { status: "pending", label: "Awaiting Approval",  color: "text-yellow-400", dot: "bg-yellow-400" },
-  { status: "approved",label: "Done",               color: "text-emerald-400",dot: "bg-emerald-400" },
-];
+// ─── LogsView ──────────────────────────────────────────────────────────────
 
 function LogsView({ logs, loading }: { logs: LogEntry[]; loading: boolean }) {
-  if (loading) {
-    return (
-      <div className="text-zinc-600 text-xs text-center py-12">
-        Loading logs…
-      </div>
-    );
-  }
+  if (loading) return <div className="text-zinc-600 text-xs text-center py-12">Loading logs…</div>;
+  if (logs.length === 0) return (
+    <div className="text-zinc-700 text-xs text-center py-12">
+      No logs yet. Agents post knowledge and improvements via POST /api/log.
+    </div>
+  );
 
-  if (logs.length === 0) {
-    return (
-      <div className="text-zinc-700 text-xs text-center py-12">
-        No logs yet. Agents post knowledge and improvements via POST /api/log.
-      </div>
-    );
-  }
-
-  // task_id|task_title でグループ化 (task_id 無しは no-task グループ)
   const groups = new Map<string, LogEntry[]>();
   for (const log of logs) {
     const key = `${log.task_id ?? "no-task"}|${log.task_title}`;
@@ -433,34 +280,21 @@ function LogsView({ logs, loading }: { logs: LogEntry[]; loading: boolean }) {
         return (
           <section key={key} className="space-y-2">
             <header className="flex items-baseline gap-2 border-b border-zinc-800 pb-1">
-              <h3 className="text-[13px] font-semibold text-zinc-200 truncate">
-                {task_title}
-              </h3>
-              {task_id && (
-                <code className="text-[10px] text-zinc-500">{task_id}</code>
-              )}
-              <span className="text-[10px] text-zinc-600 ml-auto">
-                {group.length}
-              </span>
+              <h3 className="text-[13px] font-semibold text-zinc-200 truncate">{task_title}</h3>
+              {task_id && <code className="text-[10px] text-zinc-500">{task_id}</code>}
+              <span className="text-[10px] text-zinc-600 ml-auto">{group.length}</span>
             </header>
             <div className="space-y-1.5">
               {group.map((log, i) => {
                 const time = new Date(log.timestamp).toTimeString().slice(0, 5);
                 return (
-                  <div
-                    key={i}
-                    className={`rounded-lg border p-2.5 text-xs space-y-1 ${LOG_TYPE_COLOR[log.type]}`}
-                  >
+                  <div key={i} className={`rounded-lg border p-2.5 text-xs space-y-1 ${LOG_TYPE_COLOR[log.type]}`}>
                     <div className="flex items-center gap-2 text-[11px] text-zinc-500">
-                      <span className="text-sm leading-none">
-                        {LOG_TYPE_ICON[log.type]}
-                      </span>
+                      <span className="text-sm leading-none">{LOG_TYPE_ICON[log.type]}</span>
                       <span className="text-zinc-400">{log.agent}</span>
                       <span className="text-zinc-600 ml-auto">{time}</span>
                     </div>
-                    <p className="text-zinc-200 whitespace-pre-wrap break-words">
-                      {log.content}
-                    </p>
+                    <p className="text-zinc-200 whitespace-pre-wrap break-words">{log.content}</p>
                   </div>
                 );
               })}
@@ -472,65 +306,62 @@ function LogsView({ logs, loading }: { logs: LogEntry[]; loading: boolean }) {
   );
 }
 
+// ─── KanbanPage ────────────────────────────────────────────────────────────
+
 export default function KanbanPage() {
-  const [cards, setCards] = useState<Card[]>([]);
-  const [selected, setSelected] = useState<Card | null>(null);
+  const [missions, setMissions] = useState<Mission[]>([]);
+  const [selectedMission, setSelectedMission] = useState<string | null>(null);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [showRequestForm, setShowRequestForm] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [requests, setRequests] = useState<MissionRequest[]>([]);
-  const [showRequests, setShowRequests] = useState(false);
   const [tab, setTab] = useState<Tab>("board");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [requests, setRequests] = useState<MissionRequest[]>([]);
 
-  const fetchCards = useCallback(async (): Promise<Card[]> => {
-    const res = await fetch("/api/cards");
-    if (!res.ok) {
-      setLoading(false);
-      return [];
-    }
-    const data = await res.json();
-    setCards(data.cards);
-    setLoading(false);
-    return data.cards as Card[];
-  }, []);
-
-  const fetchRequests = useCallback(async () => {
-    const data = await fetchRequestsAction();
-    setRequests(data);
-  }, []);
-
-  const fetchLogs = useCallback(async () => {
-    setLogsLoading(true);
-    try {
-      const res = await fetch("/api/logs");
-      if (!res.ok) {
-        setLogs([]);
-        return;
+  // Fetch missions once on mount
+  useEffect(() => {
+    fetchMissions().then((data) => {
+      setMissions(data);
+      if (data.length > 0 && selectedMission === null) {
+        setSelectedMission(data[0].slug);
       }
-      const data = await res.json();
-      setLogs(data.logs as LogEntry[]);
-    } finally {
-      setLogsLoading(false);
-    }
-  }, []);
+    });
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Smart Polling: Board タブが active な時のみ動く
-  // (Logs タブ中は /api/cards を叩かない → さらに commands 節約)
+  // Fetch tasks whenever selectedMission changes
+  const loadTasks = useCallback(async (): Promise<Task[]> => {
+    if (!selectedMission) {
+      // All missions: fetch and merge
+      const allMissions = await fetchMissions();
+      const results = await Promise.all(allMissions.map((m) => fetchMissionTasks(m.slug)));
+      const merged = results.flat();
+      setTasks(merged);
+      setLoading(false);
+      return merged;
+    }
+    const data = await fetchMissionTasks(selectedMission);
+    setTasks(data);
+    setLoading(false);
+    return data;
+  }, [selectedMission]);
+
+  // Smart Polling for board tab
   useEffect(() => {
     if (tab !== "board") return;
     if (typeof document === "undefined") return;
 
     let timer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
+    setLoading(true);
 
     const tick = async () => {
       if (cancelled || document.visibilityState !== "visible") return;
-      const latest = await fetchCards();
+      const latest = await loadTasks();
       if (cancelled) return;
-      const hasPending = latest.some((c) => c.status === "pending");
-      const delay = hasPending ? POLL_ACTIVE_MS : POLL_IDLE_MS;
+      const hasActive = latest.some((t) => t.status === "in_progress");
+      const delay = hasActive ? POLL_ACTIVE_MS : POLL_IDLE_MS;
       timer = setTimeout(tick, delay);
     };
 
@@ -552,56 +383,71 @@ export default function KanbanPage() {
       if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [fetchCards, tab]);
+  }, [loadTasks, tab]);
 
-  // Logs タブに切り替わった瞬間に 1 回だけ fetch
-  // (ポーリングは無し、ユーザが手動で再読み込みしたければタブを出入りする)
-  useEffect(() => {
-    if (tab === "logs") {
-      fetchLogs();
+  // Logs: fetch once on tab switch
+  const fetchLogs = useCallback(async () => {
+    setLogsLoading(true);
+    try {
+      const res = await fetch("/api/logs");
+      if (!res.ok) { setLogs([]); return; }
+      const data = await res.json();
+      setLogs(data.logs as LogEntry[]);
+    } finally {
+      setLogsLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "logs") fetchLogs();
   }, [tab, fetchLogs]);
 
-  // requests は変化頻度が低いので POLL_IDLE_MS 間隔で定期取得
+  // Requests: low-frequency polling
+  const fetchReqs = useCallback(async () => {
+    const data = await fetchRequestsAction();
+    setRequests(data);
+  }, []);
+
   useEffect(() => {
-    fetchRequests();
-    const t = setInterval(fetchRequests, POLL_IDLE_MS);
+    fetchReqs();
+    const t = setInterval(fetchReqs, POLL_IDLE_MS);
     return () => clearInterval(t);
-  }, [fetchRequests]);
-
-  const handleApprove = async (id: string) => {
-    await approveCard(id);
-    setSelected(null);
-    await fetchCards();
-  };
-
-  const handleDeny = async (id: string) => {
-    await denyCard(id);
-    setSelected(null);
-    await fetchCards();
-  };
+  }, [fetchReqs]);
 
   const handleSubmitted = useCallback((id: string) => {
     setShowRequestForm(false);
     setToast(`リクエスト #${id} を送信しました`);
-    fetchRequests();
-  }, [fetchRequests]);
+    fetchReqs();
+  }, [fetchReqs]);
 
-  const pending = cards.filter((c) => c.status === "pending");
-  const pendingRequests = requests.filter((r) => r.status === "pending");
+  const inProgressCount = tasks.filter((t) => t.status === "in_progress").length;
+  const pendingRequests = requests.filter((r) => r.status === "pending").length;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
       {/* Header */}
-      <header className="border-b border-zinc-800 px-4 py-3 flex items-center justify-between">
-        <div>
-          <h1 className="font-bold text-base tracking-tight">Taskvia</h1>
-          <p className="text-[11px] text-zinc-500">Agent Approval Board</p>
+      <header className="border-b border-zinc-800 px-4 py-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="shrink-0">
+            <h1 className="font-bold text-base tracking-tight">Taskvia</h1>
+            <p className="text-[11px] text-zinc-500">Task Board</p>
+          </div>
+          <MissionSelector
+            missions={missions}
+            selected={selectedMission}
+            onChange={setSelectedMission}
+          />
         </div>
-        <div className="flex items-center gap-3">
-          {pending.length > 0 && (
-            <span className="bg-yellow-500 text-black text-xs font-bold px-2 py-0.5 rounded-full animate-pulse">
-              {pending.length}
+
+        <div className="flex items-center gap-2 shrink-0">
+          {inProgressCount > 0 && (
+            <span className="bg-blue-500 text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse">
+              {inProgressCount}
+            </span>
+          )}
+          {pendingRequests > 0 && (
+            <span className="bg-yellow-500 text-black text-xs font-bold px-2 py-0.5 rounded-full">
+              {pendingRequests}
             </span>
           )}
           <div className={`w-2 h-2 rounded-full ${loading ? "bg-zinc-600" : "bg-emerald-400"}`} />
@@ -610,55 +456,46 @@ export default function KanbanPage() {
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-medium hover:bg-emerald-500/20 active:scale-95 transition-all"
           >
             <span>＋</span>
-            <span>Orchestrator に依頼</span>
+            <span className="hidden sm:inline">依頼</span>
           </button>
         </div>
       </header>
 
       {/* Tab switcher */}
       <nav className="border-b border-zinc-800 px-4 flex gap-1">
-        {(["board", "logs"] as const).map((key) => {
-          const active = tab === key;
-          return (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              className={`px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
-                active
-                  ? "text-white border-b-2 border-emerald-400"
-                  : "text-zinc-500 hover:text-zinc-300 border-b-2 border-transparent"
-              }`}
-            >
-              {key === "board" ? "Board" : "Logs"}
-            </button>
-          );
-        })}
+        {(["board", "logs"] as const).map((key) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
+              tab === key
+                ? "text-white border-b-2 border-emerald-400"
+                : "text-zinc-500 hover:text-zinc-300 border-b-2 border-transparent"
+            }`}
+          >
+            {key === "board" ? "Board" : "Logs"}
+          </button>
+        ))}
       </nav>
 
-      {/* Board (kanban columns) */}
+      {/* Board */}
       {tab === "board" && (
-        <div className="grid grid-cols-3 gap-px bg-zinc-800 min-h-[calc(100vh-97px)]">
-          {COLUMNS.map((col) => {
-            const colCards = cards.filter((c) => c.status === col.status);
+        <div className="grid grid-cols-4 gap-px bg-zinc-800 min-h-[calc(100vh-97px)]">
+          {TASK_COLUMNS.map((col) => {
+            const colTasks = tasks.filter((t) => t.status === col.status);
             return (
-              <div key={col.status} className="bg-zinc-950 p-3 space-y-2">
+              <div key={col.status} className="bg-zinc-950 p-3 space-y-2 min-w-0">
                 <div className="flex items-center gap-1.5 mb-3">
                   <div className={`w-2 h-2 rounded-full ${col.dot}`} />
-                  <span className={`text-[11px] font-semibold uppercase tracking-wider ${col.color}`}>
+                  <span className={`text-[11px] font-semibold uppercase tracking-wider truncate ${col.color}`}>
                     {col.label}
                   </span>
-                  <span className="text-[11px] text-zinc-600 ml-auto">{colCards.length}</span>
+                  <span className="text-[11px] text-zinc-600 ml-auto shrink-0">{colTasks.length}</span>
                 </div>
-                {colCards.length === 0 ? (
+                {colTasks.length === 0 ? (
                   <div className="text-zinc-700 text-xs text-center py-6">—</div>
                 ) : (
-                  colCards.map((card) => (
-                    <CardItem
-                      key={card.id}
-                      card={card}
-                      onClick={col.status === "pending" ? () => setSelected(card) : undefined}
-                    />
-                  ))
+                  colTasks.map((task) => <TaskCard key={task.id} task={task} />)
                 )}
               </div>
             );
@@ -666,67 +503,11 @@ export default function KanbanPage() {
         </div>
       )}
 
-      {/* Logs view */}
+      {/* Logs */}
       {tab === "logs" && (
         <div className="min-h-[calc(100vh-97px)] bg-zinc-950">
           <LogsView logs={logs} loading={logsLoading} />
         </div>
-      )}
-
-      {/* Requests Section */}
-      {requests.length > 0 && (
-        <div className="border-t border-zinc-800 px-4 py-3">
-          <button
-            onClick={() => setShowRequests((v) => !v)}
-            className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400 hover:text-zinc-200 transition-colors"
-          >
-            <div className={`w-2 h-2 rounded-full ${pendingRequests.length > 0 ? "bg-yellow-400" : "bg-zinc-500"}`} />
-            <span>送信済みリクエスト</span>
-            <span className="text-zinc-600">{requests.length}</span>
-            <span className="ml-auto text-zinc-600">{showRequests ? "▲" : "▼"}</span>
-          </button>
-
-          {showRequests && (
-            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {requests.map((req) => (
-                <div
-                  key={req.id}
-                  className="rounded-xl border border-zinc-700 bg-zinc-900 p-3 text-sm space-y-1.5"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-zinc-100 text-xs font-medium truncate flex-1">{req.title}</span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${REQUEST_STATUS_STYLE[req.status]}`}>
-                      {req.status}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${PRIORITY_BADGE[req.priority]}`}>
-                      {req.priority}
-                    </span>
-                    {req.skills.length > 0 && (
-                      <span className="text-[10px] text-zinc-500 truncate">
-                        {req.skills.join(", ")}
-                      </span>
-                    )}
-                  </div>
-                  {req.deadline_note && (
-                    <div className="text-[10px] text-zinc-600">{req.deadline_note}</div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Approval Modal */}
-      {selected && (
-        <ApprovalModal
-          card={selected}
-          onApprove={() => handleApprove(selected.id)}
-          onDeny={() => handleDeny(selected.id)}
-          onClose={() => setSelected(null)}
-        />
       )}
 
       {/* Request Form Modal */}
@@ -738,9 +519,7 @@ export default function KanbanPage() {
       )}
 
       {/* Toast */}
-      {toast && (
-        <Toast message={toast} onDone={() => setToast(null)} />
-      )}
+      {toast && <Toast message={toast} onDone={() => setToast(null)} />}
     </div>
   );
 }

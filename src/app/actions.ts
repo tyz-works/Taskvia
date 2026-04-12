@@ -103,3 +103,45 @@ export async function denyCard(id: string): Promise<{ ok: boolean } | { error: s
 
   return { ok: true };
 }
+
+export interface Mission {
+  slug: string;
+  title: string;
+  status: string;
+  created_at: string;
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  status: "pending" | "in_progress" | "done" | "blocked";
+  assignee: string | null;
+  skills: string[];
+  priority: "high" | "medium" | "low";
+  blocked_by: string[];
+  created_at: string;
+}
+
+export async function fetchMissions(): Promise<Mission[]> {
+  const slugs = await redis.lrange<string>("mission:index", 0, -1);
+  if (!slugs || slugs.length === 0) return [];
+
+  const keys = slugs.map((s) => `mission:${s}`);
+  const raws = await redis.mget<(string | object | null)[]>(...keys);
+
+  return raws
+    .filter((raw): raw is string | object => raw !== null)
+    .map((raw) => (typeof raw === "string" ? JSON.parse(raw) : raw)) as Mission[];
+}
+
+export async function fetchMissionTasks(slug: string): Promise<Task[]> {
+  const ids = await redis.lrange<string>(`mission:${slug}:tasks:index`, 0, -1);
+  if (!ids || ids.length === 0) return [];
+
+  const keys = ids.map((id) => `mission:${slug}:tasks:${id}`);
+  const raws = await redis.mget<(string | object | null)[]>(...keys);
+
+  return raws
+    .filter((raw): raw is string | object => raw !== null)
+    .map((raw) => (typeof raw === "string" ? JSON.parse(raw) : raw)) as Task[];
+}
