@@ -56,9 +56,9 @@ export async function GET() {
 
   if (!raws || raws.length === 0) return Response.json({ cards: [] });
 
-  const cards = raws
-    .filter((raw): raw is string => raw !== null)
-    .map((raw) => JSON.parse(raw));
+  const cards = (raws as (string | object | null)[])
+    .filter((raw): raw is string | object => raw !== null)
+    .map((raw) => (typeof raw === "string" ? JSON.parse(raw) : raw));
 
   return Response.json({ cards });
 }
