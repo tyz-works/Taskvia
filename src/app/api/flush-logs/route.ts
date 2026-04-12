@@ -4,9 +4,11 @@ import { isAuthorized, unauthorized } from "@/lib/auth";
 
 const redis = Redis.fromEnv();
 
-export async function POST(req: Request) {
-  if (!isAuthorized(req)) return unauthorized();
-
+/**
+ * agent:logs を読み出して tkworks-vault に push する共通処理。
+ * POST (手動トリガ) と GET (Vercel Cron 発火) から呼ばれる。
+ */
+async function flushLogs() {
   const githubToken = process.env.GITHUB_TOKEN;
   if (!githubToken) {
     return Response.json({ error: "GITHUB_TOKEN not configured" }, { status: 503 });
@@ -84,4 +86,37 @@ export async function POST(req: Request) {
   await redis.del("agent:logs");
 
   return Response.json({ ok: true, pushed: entries.length });
+}
+
+/**
+ * 手動トリガ用 (TASKVIA_TOKEN で認証)。
+ */
+export async function POST(req: Request) {
+  if (!isAuthorized(req)) return unauthorized();
+  return flushLogs();
+}
+
+/**
+ * Vercel Cron 発火用 (CRON_SECRET で認証)。
+ *
+ * Vercel Cron は設定済みの CRON_SECRET を
+ * `Authorization: Bearer ${CRON_SECRET}` で自動付与する。
+ * CRON_SECRET 未設定時はこの GET は常に 503 を返して失敗させる
+ * (cron 側で誤って外部から叩かれるリスクを回避)。
+ */
+export async function GET(req: Request) {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    return Response.json(
+      { error: "CRON_SECRET not configured" },
+      { status: 503 }
+    );
+  }
+
+  const authHeader = req.headers.get("authorization");
+  if (authHeader !== `Bearer ${cronSecret}`) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  return flushLogs();
 }
