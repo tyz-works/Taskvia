@@ -1,43 +1,10 @@
 "use server";
 
-import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
 import type { MissionRequest } from "./api/requests/route";
 
 const BASE_URL = process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}`
   : "http://localhost:3000";
-
-async function hashToken(token: string): Promise<string> {
-  const buf = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(token)
-  );
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-export async function loginAction(formData: FormData) {
-  const password = ((formData.get("password") as string) ?? "").trim();
-  const token = (process.env.TASKVIA_TOKEN ?? "").trim();
-
-  if (!token || !password || password !== token) {
-    redirect("/login?error=1");
-  }
-
-  const hash = await hashToken(token);
-  const cookieStore = await cookies();
-  cookieStore.set("taskvia-session", hash, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 30, // 30 days
-    path: "/",
-  });
-
-  redirect("/");
-}
 
 function authHeaders(): Record<string, string> {
   const token = process.env.TASKVIA_TOKEN;
