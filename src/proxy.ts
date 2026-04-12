@@ -44,7 +44,8 @@ export default function proxy(request: NextRequest) {
   const userMatch = user === USER;
   const passMatch = pass === token;
   if (!userMatch || !passMatch) {
-    console.error(`[proxy] auth_failed user_match=${userMatch} entered_len=${pass.length} token_len=${token.length}`);
+    console.error(`[proxy] user_match=${userMatch}`);
+    console.error(`[proxy] entered_len=${pass.length} token_len=${token.length}`);
     return unauthorized();
   }
 
