@@ -40,7 +40,13 @@ export default function proxy(request: NextRequest) {
 
   const user = decoded.slice(0, colonAt);
   const pass = decoded.slice(colonAt + 1);
-  if (user !== USER || pass !== token) return unauthorized();
+
+  const userMatch = user === USER;
+  const passMatch = pass === token;
+  if (!userMatch || !passMatch) {
+    console.error(`[proxy] auth_failed user_match=${userMatch} entered_len=${pass.length} token_len=${token.length}`);
+    return unauthorized();
+  }
 
   return NextResponse.next(); // 認証OK
 }
