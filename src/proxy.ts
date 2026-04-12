@@ -19,7 +19,7 @@ async function hashToken(token: string): Promise<string> {
 }
 
 export default async function proxy(request: NextRequest) {
-  const token = process.env.TASKVIA_TOKEN;
+  const token = (process.env.TASKVIA_TOKEN ?? "").trim();
   if (!token) return NextResponse.next(); // オープンモード
 
   const session = request.cookies.get("taskvia-session")?.value;
