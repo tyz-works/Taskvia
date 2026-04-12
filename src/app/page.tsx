@@ -37,6 +37,16 @@ interface MissionRequest {
   processed_at: string | null;
 }
 
+interface LogEntry {
+  type: "knowledge" | "improvement" | "work";
+  content: string;
+  task_title: string;
+  task_id: string | null;
+  agent: string;
+  timestamp: string;
+}
+
+type Tab = "board" | "logs";
 const PRIORITY_BADGE: Record<string, string> = {
   high: "bg-red-500/20 text-red-400 border-red-500/30",
   medium: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
@@ -54,6 +64,18 @@ const ALL_SKILLS = [
   "ops", "bash", "code", "python", "typescript",
   "research", "database", "cloud", "docs", "review",
 ];
+
+const LOG_TYPE_ICON: Record<LogEntry["type"], string> = {
+  knowledge: "💡",
+  improvement: "🔧",
+  work: "📝",
+};
+
+const LOG_TYPE_COLOR: Record<LogEntry["type"], string> = {
+  knowledge: "border-sky-500/30 bg-sky-500/5",
+  improvement: "border-amber-500/30 bg-amber-500/5",
+  work: "border-zinc-700 bg-zinc-800/50",
+};
 
 function ttlSeconds(createdAt: string) {
   return Math.max(0, 600 - Math.floor((Date.now() - new Date(createdAt).getTime()) / 1000));
@@ -379,6 +401,77 @@ const COLUMNS = [
   { status: "approved",label: "Done",               color: "text-emerald-400",dot: "bg-emerald-400" },
 ];
 
+function LogsView({ logs, loading }: { logs: LogEntry[]; loading: boolean }) {
+  if (loading) {
+    return (
+      <div className="text-zinc-600 text-xs text-center py-12">
+        Loading logs…
+      </div>
+    );
+  }
+
+  if (logs.length === 0) {
+    return (
+      <div className="text-zinc-700 text-xs text-center py-12">
+        No logs yet. Agents post knowledge and improvements via POST /api/log.
+      </div>
+    );
+  }
+
+  // task_id|task_title でグループ化 (task_id 無しは no-task グループ)
+  const groups = new Map<string, LogEntry[]>();
+  for (const log of logs) {
+    const key = `${log.task_id ?? "no-task"}|${log.task_title}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(log);
+  }
+
+  return (
+    <div className="p-3 space-y-4">
+      {Array.from(groups.entries()).map(([key, group]) => {
+        const { task_title, task_id } = group[0];
+        return (
+          <section key={key} className="space-y-2">
+            <header className="flex items-baseline gap-2 border-b border-zinc-800 pb-1">
+              <h3 className="text-[13px] font-semibold text-zinc-200 truncate">
+                {task_title}
+              </h3>
+              {task_id && (
+                <code className="text-[10px] text-zinc-500">{task_id}</code>
+              )}
+              <span className="text-[10px] text-zinc-600 ml-auto">
+                {group.length}
+              </span>
+            </header>
+            <div className="space-y-1.5">
+              {group.map((log, i) => {
+                const time = new Date(log.timestamp).toTimeString().slice(0, 5);
+                return (
+                  <div
+                    key={i}
+                    className={`rounded-lg border p-2.5 text-xs space-y-1 ${LOG_TYPE_COLOR[log.type]}`}
+                  >
+                    <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+                      <span className="text-sm leading-none">
+                        {LOG_TYPE_ICON[log.type]}
+                      </span>
+                      <span className="text-zinc-400">{log.agent}</span>
+                      <span className="text-zinc-600 ml-auto">{time}</span>
+                    </div>
+                    <p className="text-zinc-200 whitespace-pre-wrap break-words">
+                      {log.content}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function KanbanPage() {
   const [cards, setCards] = useState<Card[]>([]);
   const [selected, setSelected] = useState<Card | null>(null);
@@ -387,6 +480,9 @@ export default function KanbanPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [requests, setRequests] = useState<MissionRequest[]>([]);
   const [showRequests, setShowRequests] = useState(false);
+  const [tab, setTab] = useState<Tab>("board");
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
 
   const fetchCards = useCallback(async (): Promise<Card[]> => {
     const res = await fetch("/api/cards");
@@ -405,8 +501,25 @@ export default function KanbanPage() {
     setRequests(data);
   }, []);
 
-  // Smart Polling: pending カードの有無とタブ可視性に応じて間隔を調整する
+  const fetchLogs = useCallback(async () => {
+    setLogsLoading(true);
+    try {
+      const res = await fetch("/api/logs");
+      if (!res.ok) {
+        setLogs([]);
+        return;
+      }
+      const data = await res.json();
+      setLogs(data.logs as LogEntry[]);
+    } finally {
+      setLogsLoading(false);
+    }
+  }, []);
+
+  // Smart Polling: Board タブが active な時のみ動く
+  // (Logs タブ中は /api/cards を叩かない → さらに commands 節約)
   useEffect(() => {
+    if (tab !== "board") return;
     if (typeof document === "undefined") return;
 
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -439,7 +552,15 @@ export default function KanbanPage() {
       if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [fetchCards]);
+  }, [fetchCards, tab]);
+
+  // Logs タブに切り替わった瞬間に 1 回だけ fetch
+  // (ポーリングは無し、ユーザが手動で再読み込みしたければタブを出入りする)
+  useEffect(() => {
+    if (tab === "logs") {
+      fetchLogs();
+    }
+  }, [tab, fetchLogs]);
 
   // requests は変化頻度が低いので POLL_IDLE_MS 間隔で定期取得
   useEffect(() => {
@@ -494,34 +615,63 @@ export default function KanbanPage() {
         </div>
       </header>
 
-      {/* Columns */}
-      <div className="grid grid-cols-3 gap-px bg-zinc-800 min-h-[calc(100vh-57px)]">
-        {COLUMNS.map((col) => {
-          const colCards = cards.filter((c) => c.status === col.status);
+      {/* Tab switcher */}
+      <nav className="border-b border-zinc-800 px-4 flex gap-1">
+        {(["board", "logs"] as const).map((key) => {
+          const active = tab === key;
           return (
-            <div key={col.status} className="bg-zinc-950 p-3 space-y-2">
-              <div className="flex items-center gap-1.5 mb-3">
-                <div className={`w-2 h-2 rounded-full ${col.dot}`} />
-                <span className={`text-[11px] font-semibold uppercase tracking-wider ${col.color}`}>
-                  {col.label}
-                </span>
-                <span className="text-[11px] text-zinc-600 ml-auto">{colCards.length}</span>
-              </div>
-              {colCards.length === 0 ? (
-                <div className="text-zinc-700 text-xs text-center py-6">—</div>
-              ) : (
-                colCards.map((card) => (
-                  <CardItem
-                    key={card.id}
-                    card={card}
-                    onClick={col.status === "pending" ? () => setSelected(card) : undefined}
-                  />
-                ))
-              )}
-            </div>
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
+                active
+                  ? "text-white border-b-2 border-emerald-400"
+                  : "text-zinc-500 hover:text-zinc-300 border-b-2 border-transparent"
+              }`}
+            >
+              {key === "board" ? "Board" : "Logs"}
+            </button>
           );
         })}
-      </div>
+      </nav>
+
+      {/* Board (kanban columns) */}
+      {tab === "board" && (
+        <div className="grid grid-cols-3 gap-px bg-zinc-800 min-h-[calc(100vh-97px)]">
+          {COLUMNS.map((col) => {
+            const colCards = cards.filter((c) => c.status === col.status);
+            return (
+              <div key={col.status} className="bg-zinc-950 p-3 space-y-2">
+                <div className="flex items-center gap-1.5 mb-3">
+                  <div className={`w-2 h-2 rounded-full ${col.dot}`} />
+                  <span className={`text-[11px] font-semibold uppercase tracking-wider ${col.color}`}>
+                    {col.label}
+                  </span>
+                  <span className="text-[11px] text-zinc-600 ml-auto">{colCards.length}</span>
+                </div>
+                {colCards.length === 0 ? (
+                  <div className="text-zinc-700 text-xs text-center py-6">—</div>
+                ) : (
+                  colCards.map((card) => (
+                    <CardItem
+                      key={card.id}
+                      card={card}
+                      onClick={col.status === "pending" ? () => setSelected(card) : undefined}
+                    />
+                  ))
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Logs view */}
+      {tab === "logs" && (
+        <div className="min-h-[calc(100vh-97px)] bg-zinc-950">
+          <LogsView logs={logs} loading={logsLoading} />
+        </div>
+      )}
 
       {/* Requests Section */}
       {requests.length > 0 && (
