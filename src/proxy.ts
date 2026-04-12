@@ -45,6 +45,6 @@ export default function proxy(request: NextRequest) {
   return NextResponse.next(); // 認証OK
 }
 
-export const proxyConfig = {
+export const config = {
   matcher: ["/", "/api/cards"],
 };
