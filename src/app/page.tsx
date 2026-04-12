@@ -6,8 +6,12 @@ import {
   fetchRequests as fetchRequestsAction,
   fetchMissions,
   fetchMissionTasks,
+  fetchApprovalCards,
+  approveCard,
+  denyCard,
   type Mission,
   type Task,
+  type ApprovalCard,
 } from "./actions";
 import type { MissionRequest } from "./api/requests/route";
 
@@ -56,9 +60,97 @@ const LOG_TYPE_COLOR: Record<LogEntry["type"], string> = {
   work: "border-zinc-700 bg-zinc-800/50",
 };
 
+// ─── ApprovalModal ─────────────────────────────────────────────────────────
+
+function ApprovalModal({
+  card,
+  onClose,
+  onDone,
+}: {
+  card: ApprovalCard;
+  onClose: () => void;
+  onDone: (action: "approved" | "denied") => void;
+}) {
+  const [acting, setActing] = useState(false);
+
+  const handle = async (action: "approve" | "deny") => {
+    setActing(true);
+    if (action === "approve") {
+      await approveCard(card.id);
+    } else {
+      await denyCard(card.id);
+    }
+    onDone(action === "approve" ? "approved" : "denied");
+  };
+
+  const timeAgo = (() => {
+    const diff = Math.floor((Date.now() - new Date(card.created_at).getTime()) / 1000);
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    return `${Math.floor(diff / 3600)}h ago`;
+  })();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl overflow-hidden shadow-2xl">
+        <div className="p-5 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-white font-semibold text-base">承認リクエスト</h2>
+              <p className="text-zinc-500 text-xs mt-0.5">{card.agent} · {timeAgo}</p>
+            </div>
+            <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 text-lg leading-none mt-0.5">✕</button>
+          </div>
+
+          <div className="bg-zinc-800 rounded-xl p-3 space-y-1">
+            <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Tool</div>
+            <code className="text-sm text-emerald-300 break-all">{card.tool}</code>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${PRIORITY_BADGE[card.priority] ?? PRIORITY_BADGE.medium}`}>
+              {card.priority}
+            </span>
+            {card.task_id && (
+              <code className="text-[10px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">{card.task_id}</code>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <button
+              onClick={() => handle("deny")}
+              disabled={acting}
+              className="py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 font-semibold hover:bg-red-500/20 active:scale-95 transition-all disabled:opacity-50"
+            >
+              Deny
+            </button>
+            <button
+              onClick={() => handle("approve")}
+              disabled={acting}
+              className="py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold hover:bg-emerald-500/20 active:scale-95 transition-all disabled:opacity-50"
+            >
+              {acting ? "…" : "Approve"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── TaskCard ──────────────────────────────────────────────────────────────
 
-function TaskCard({ task }: { task: Task }) {
+function TaskCard({
+  task,
+  pendingApprovals,
+  onApprovalBadgeClick,
+}: {
+  task: Task;
+  pendingApprovals: ApprovalCard[];
+  onApprovalBadgeClick: (card: ApprovalCard) => void;
+}) {
+  const count = pendingApprovals.length;
+
   return (
     <div className="rounded-xl border border-zinc-700/60 bg-zinc-900 p-3 space-y-2 text-sm">
       {/* Title + priority */}
@@ -68,6 +160,17 @@ function TaskCard({ task }: { task: Task }) {
           {task.priority}
         </span>
       </div>
+
+      {/* Approval badge */}
+      {count > 0 && (
+        <button
+          onClick={() => onApprovalBadgeClick(pendingApprovals[0])}
+          className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 font-medium hover:bg-amber-500/20 active:scale-95 transition-all w-full"
+        >
+          <span>⚠️</span>
+          <span>承認 {count}件</span>
+        </button>
+      )}
 
       {/* Skills */}
       {task.skills.length > 0 && (
@@ -319,6 +422,8 @@ export default function KanbanPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [requests, setRequests] = useState<MissionRequest[]>([]);
+  const [approvalCards, setApprovalCards] = useState<ApprovalCard[]>([]);
+  const [activeApproval, setActiveApproval] = useState<ApprovalCard | null>(null);
 
   // Fetch missions once on mount
   useEffect(() => {
@@ -402,6 +507,24 @@ export default function KanbanPage() {
     if (tab === "logs") fetchLogs();
   }, [tab, fetchLogs]);
 
+  // Approval cards: medium-frequency polling
+  const fetchApprovals = useCallback(async () => {
+    const data = await fetchApprovalCards();
+    setApprovalCards(data.filter((c) => c.status === "pending"));
+  }, []);
+
+  useEffect(() => {
+    fetchApprovals();
+    const t = setInterval(fetchApprovals, POLL_ACTIVE_MS);
+    return () => clearInterval(t);
+  }, [fetchApprovals]);
+
+  const handleApprovalDone = useCallback((action: "approved" | "denied") => {
+    setActiveApproval(null);
+    setToast(action === "approved" ? "✅ 承認しました" : "❌ 拒否しました");
+    fetchApprovals();
+  }, [fetchApprovals]);
+
   // Requests: low-frequency polling
   const fetchReqs = useCallback(async () => {
     const data = await fetchRequestsAction();
@@ -422,6 +545,7 @@ export default function KanbanPage() {
 
   const inProgressCount = tasks.filter((t) => t.status === "in_progress").length;
   const pendingRequests = requests.filter((r) => r.status === "pending").length;
+  const pendingApprovalCount = approvalCards.length;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
@@ -448,6 +572,11 @@ export default function KanbanPage() {
           {pendingRequests > 0 && (
             <span className="bg-yellow-500 text-black text-xs font-bold px-2 py-0.5 rounded-full">
               {pendingRequests}
+            </span>
+          )}
+          {pendingApprovalCount > 0 && (
+            <span className="bg-amber-500 text-black text-xs font-bold px-2 py-0.5 rounded-full animate-pulse">
+              ⚠️ {pendingApprovalCount}
             </span>
           )}
           <div className={`w-2 h-2 rounded-full ${loading ? "bg-zinc-600" : "bg-emerald-400"}`} />
@@ -495,7 +624,18 @@ export default function KanbanPage() {
                 {colTasks.length === 0 ? (
                   <div className="text-zinc-700 text-xs text-center py-6">—</div>
                 ) : (
-                  colTasks.map((task) => <TaskCard key={task.id} task={task} />)
+                  colTasks.map((task) => (
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      pendingApprovals={
+                        task.status === "in_progress"
+                          ? approvalCards.filter((c) => c.task_id === task.id)
+                          : []
+                      }
+                      onApprovalBadgeClick={setActiveApproval}
+                    />
+                  ))
                 )}
               </div>
             );
@@ -508,6 +648,15 @@ export default function KanbanPage() {
         <div className="min-h-[calc(100vh-97px)] bg-zinc-950">
           <LogsView logs={logs} loading={logsLoading} />
         </div>
+      )}
+
+      {/* Approval Modal */}
+      {activeApproval && (
+        <ApprovalModal
+          card={activeApproval}
+          onClose={() => setActiveApproval(null)}
+          onDone={handleApprovalDone}
+        />
       )}
 
       {/* Request Form Modal */}
