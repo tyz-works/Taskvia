@@ -19,8 +19,8 @@ async function hashToken(token: string): Promise<string> {
 }
 
 export async function loginAction(formData: FormData) {
-  const password = (formData.get("password") as string) ?? "";
-  const token = process.env.TASKVIA_TOKEN;
+  const password = ((formData.get("password") as string) ?? "").trim();
+  const token = (process.env.TASKVIA_TOKEN ?? "").trim();
 
   if (!token || !password || password !== token) {
     redirect("/login?error=1");
