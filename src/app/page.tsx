@@ -3,6 +3,16 @@
 import { useState, useEffect, useCallback } from "react";
 import { submitRequest, fetchRequests as fetchRequestsAction, approveCard, denyCard } from "./actions";
 
+// Smart Polling の間隔 (ms)
+// - pending カードあり: 2 秒 (体感即時)
+// - pending なし: 15 秒 (待機モード)
+// - タブ非表示時は完全停止
+//
+// Upstash Free プラン (500K commands/month) の節約のため、Board が
+// active で pending を見張っている時だけ頻繁に叩く。
+const POLL_ACTIVE_MS = 2000;
+const POLL_IDLE_MS = 15000;
+
 interface Card {
   id: string;
   tool: string;
@@ -378,13 +388,16 @@ export default function KanbanPage() {
   const [requests, setRequests] = useState<MissionRequest[]>([]);
   const [showRequests, setShowRequests] = useState(false);
 
-  const fetchCards = useCallback(async () => {
+  const fetchCards = useCallback(async (): Promise<Card[]> => {
     const res = await fetch("/api/cards");
-    if (res.ok) {
-      const data = await res.json();
-      setCards(data.cards);
+    if (!res.ok) {
+      setLoading(false);
+      return [];
     }
+    const data = await res.json();
+    setCards(data.cards);
     setLoading(false);
+    return data.cards as Card[];
   }, []);
 
   const fetchRequests = useCallback(async () => {
@@ -392,15 +405,48 @@ export default function KanbanPage() {
     setRequests(data);
   }, []);
 
+  // Smart Polling: pending カードの有無とタブ可視性に応じて間隔を調整する
   useEffect(() => {
-    fetchCards();
+    if (typeof document === "undefined") return;
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    const tick = async () => {
+      if (cancelled || document.visibilityState !== "visible") return;
+      const latest = await fetchCards();
+      if (cancelled) return;
+      const hasPending = latest.some((c) => c.status === "pending");
+      const delay = hasPending ? POLL_ACTIVE_MS : POLL_IDLE_MS;
+      timer = setTimeout(tick, delay);
+    };
+
+    tick();
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        if (timer) clearTimeout(timer);
+        tick();
+      } else if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [fetchCards]);
+
+  // requests は変化頻度が低いので POLL_IDLE_MS 間隔で定期取得
+  useEffect(() => {
     fetchRequests();
-    const t = setInterval(() => {
-      fetchCards();
-      fetchRequests();
-    }, 3000);
+    const t = setInterval(fetchRequests, POLL_IDLE_MS);
     return () => clearInterval(t);
-  }, [fetchCards, fetchRequests]);
+  }, [fetchRequests]);
 
   const handleApprove = async (id: string) => {
     await approveCard(id);
