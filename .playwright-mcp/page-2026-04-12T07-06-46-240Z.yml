@@ -1,0 +1,8 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - heading "Taskvia" [level=1] [ref=e4]
+    - paragraph [ref=e5]: Agent Approval Board
+    - generic [ref=e6]:
+      - textbox "アクセストークン" [active] [ref=e7]
+      - button "ログイン" [ref=e8]
+  - alert [ref=e9]

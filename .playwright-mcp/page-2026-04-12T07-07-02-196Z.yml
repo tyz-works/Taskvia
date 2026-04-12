@@ -1,0 +1,11 @@
+- generic [ref=e1]:
+  - button "Open Next.js Dev Tools" [ref=e15] [cursor=pointer]:
+    - img [ref=e16]
+  - alert [ref=e9]
+  - generic [ref=e20]:
+    - heading "Taskvia" [level=1] [ref=e21]
+    - paragraph [ref=e22]: Agent Approval Board
+    - generic [ref=e23]:
+      - textbox "アクセストークン" [active] [ref=e24]
+      - paragraph [ref=e25]: トークンが違います。再度お試しください。
+      - button "ログイン" [ref=e26]

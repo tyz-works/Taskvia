@@ -1,0 +1,33 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - heading "Taskvia" [level=1] [ref=e5]
+        - paragraph [ref=e6]: Agent Approval Board
+      - button "＋ Orchestrator に依頼" [ref=e9]:
+        - generic [ref=e10]: ＋
+        - generic [ref=e11]: Orchestrator に依頼
+    - generic [ref=e12]:
+      - generic [ref=e13]:
+        - generic [ref=e14]:
+          - generic [ref=e16]: Backlog
+          - generic [ref=e17]: "0"
+        - generic [ref=e18]: —
+      - generic [ref=e19]:
+        - generic [ref=e20]:
+          - generic [ref=e22]: Awaiting Approval
+          - generic [ref=e23]: "0"
+        - generic [ref=e24]: —
+      - generic [ref=e25]:
+        - generic [ref=e26]:
+          - generic [ref=e28]: Done
+          - generic [ref=e29]: "0"
+        - generic [ref=e30]: —
+    - button "送信済みリクエスト 1 ▼" [ref=e82]:
+      - generic [ref=e84]: 送信済みリクエスト
+      - generic [ref=e85]: "1"
+      - generic [ref=e86]: ▼
+    - generic [ref=e87]: "リクエスト #Gkb_T8mNnBp5DN4YoG4I4 を送信しました"
+  - button "Open Next.js Dev Tools" [ref=e37] [cursor=pointer]:
+    - img [ref=e38]
+  - alert [ref=e31]

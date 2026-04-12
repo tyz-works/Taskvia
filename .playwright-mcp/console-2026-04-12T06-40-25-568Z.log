@@ -1,0 +1,103 @@
+[     279ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2431
+[     330ms] [LOG] [HMR] connected @ http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_115brz8._.js:2431
+[     381ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /api/cards
+    at KanbanPage.useCallback[fetchCards] (http://admin:testtoken123@localhost:3000/_next/static/chunks/src_app_0zob4za._.js:995:31)
+    at KanbanPage.useEffect.tick (http://admin:testtoken123@localhost:3000/_next/static/chunks/src_app_0zob4za._.js:1039:42)
+    at KanbanPage.useEffect (http://admin:testtoken123@localhost:3000/_next/static/chunks/src_app_0zob4za._.js:1048:13)
+    at Object.react_stack_bottom_frame (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:15087:22)
+    at runWithFiberInDEV (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:965:74)
+    at commitHookEffectListMount (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:7255:167)
+    at commitHookPassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:7290:60)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8689:33)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8750:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8750:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8693:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8693:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8693:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8750:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8750:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8688:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8750:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8750:17)
+    at recursivelyTraversePassiveMountEffects (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8676:316)
+    at commitPassiveMountOnFiber (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-dom_058-ah~._.js:8750:17)
+[     382ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[   15368ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[   30367ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[   45369ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[   60370ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[   75371ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[   90371ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[  105372ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[  120372ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[  135373ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[  150373ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[  165372ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[  180380ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[  195373ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[  210382ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[  225373ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[  240381ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[  255374ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[  270380ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[  285374ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[  300381ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[  315374ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[  330382ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[  345374ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
+[  360375ms] TypeError: Failed to execute 'fetch' on 'Window': Request cannot be constructed from a URL that includes credentials: /
+    at fetchServerAction (http://admin:testtoken123@localhost:3000/_next/static/chunks/node_modules_next_dist_client_0fhqo1d._.js:11109:23)
