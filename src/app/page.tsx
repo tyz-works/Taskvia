@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { submitRequest, fetchRequests as fetchRequestsAction, approveCard, denyCard } from "./actions";
 
 interface Card {
   id: string;
@@ -199,32 +200,22 @@ function RequestFormModal({
     setSubmitting(true);
     setError(null);
 
-    const token = process.env.NEXT_PUBLIC_TASKVIA_TOKEN;
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-
     try {
-      const res = await fetch("/api/requests", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          title: title.trim(),
-          body: body.trim(),
-          priority,
-          skills,
-          target_dir: targetDir.trim(),
-          deadline_note: deadlineNote.trim(),
-        }),
+      const result = await submitRequest({
+        title: title.trim(),
+        body: body.trim(),
+        priority,
+        skills,
+        target_dir: targetDir.trim(),
+        deadline_note: deadlineNote.trim(),
       });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error ?? `エラー: ${res.status}`);
+      if ("error" in result) {
+        setError(result.error);
         return;
       }
 
-      const data = await res.json();
-      onSubmitted(data.id);
+      onSubmitted(result.id);
     } catch {
       setError("ネットワークエラーが発生しました");
     } finally {
@@ -397,14 +388,8 @@ export default function KanbanPage() {
   }, []);
 
   const fetchRequests = useCallback(async () => {
-    const token = process.env.NEXT_PUBLIC_TASKVIA_TOKEN;
-    const headers: Record<string, string> = {};
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch("/api/requests", { headers });
-    if (res.ok) {
-      const data = await res.json();
-      setRequests(data.requests ?? []);
-    }
+    const data = await fetchRequestsAction();
+    setRequests(data);
   }, []);
 
   useEffect(() => {
@@ -418,13 +403,13 @@ export default function KanbanPage() {
   }, [fetchCards, fetchRequests]);
 
   const handleApprove = async (id: string) => {
-    await fetch(`/api/approve/${id}`, { method: "POST" });
+    await approveCard(id);
     setSelected(null);
     await fetchCards();
   };
 
   const handleDeny = async (id: string) => {
-    await fetch(`/api/deny/${id}`, { method: "POST" });
+    await denyCard(id);
     setSelected(null);
     await fetchCards();
   };
