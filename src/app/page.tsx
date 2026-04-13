@@ -722,9 +722,12 @@ export default function KanbanPage() {
             </span>
           )}
           {pendingApprovalCount > 0 && (
-            <span className="bg-amber-500 text-black text-xs font-bold px-2 py-0.5 rounded-full animate-pulse">
+            <button
+              onClick={() => setActiveApproval(approvalCards[0])}
+              className="bg-amber-500 text-black text-xs font-bold px-2 py-0.5 rounded-full animate-pulse hover:bg-amber-400 active:scale-95 transition-all"
+            >
               ⚠️ {pendingApprovalCount}
-            </span>
+            </button>
           )}
           <button
             onClick={handleExport}
