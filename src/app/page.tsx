@@ -14,6 +14,8 @@ import {
   bulkDeleteCards,
   cleanupOrphanCards,
   exportCards,
+  deleteMissionTask,
+  deleteMission,
   type Mission,
   type Task,
   type ApprovalCard,
@@ -169,21 +171,32 @@ function TaskCard({
   task,
   pendingApprovals,
   onApprovalBadgeClick,
+  onDelete,
 }: {
   task: Task;
   pendingApprovals: ApprovalCard[];
   onApprovalBadgeClick: (card: ApprovalCard) => void;
+  onDelete?: () => void;
 }) {
   const count = pendingApprovals.length;
 
   return (
     <div className="rounded-xl border border-zinc-700/60 bg-zinc-900 p-3 space-y-2 text-sm">
-      {/* Title + priority */}
+      {/* Title + priority + delete */}
       <div className="flex items-start gap-2">
         <span className="text-zinc-100 text-xs font-medium leading-snug flex-1">{task.title}</span>
         <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border font-medium ${PRIORITY_BADGE[task.priority]}`}>
           {task.priority}
         </span>
+        {onDelete && (
+          <button
+            onClick={onDelete}
+            title="タスクを削除"
+            className="shrink-0 text-zinc-700 hover:text-red-400 text-xs leading-none transition-colors"
+          >
+            ×
+          </button>
+        )}
       </div>
 
       {/* Approval badge */}
@@ -697,6 +710,24 @@ export default function KanbanPage() {
     fetchApprovals();
   }, [fetchApprovals]);
 
+  const handleDeleteTask = useCallback(async (slug: string, taskId: string) => {
+    if (!confirm(`タスク "${taskId}" を削除しますか？`)) return;
+    await deleteMissionTask(slug, taskId);
+    setToast(`🗑 タスク ${taskId} を削除しました`);
+    loadTasks();
+  }, [loadTasks]);
+
+  const handleDeleteMission = useCallback(async (slug: string) => {
+    const mission = missions.find((m) => m.slug === slug);
+    const label = mission ? mission.title : slug;
+    if (!confirm(`ミッション「${label}」とその全タスクを削除しますか？\nこの操作は元に戻せません。`)) return;
+    await deleteMission(slug);
+    setToast(`🗑 ミッション「${label}」を削除しました`);
+    const updated = await fetchMissions();
+    setMissions(updated);
+    setSelectedMission(updated.length > 0 ? updated[0].slug : null);
+  }, [missions]);
+
   const inProgressCount = tasks.filter((t) => t.status === "in_progress").length;
   const pendingRequests = requests.filter((r) => r.status === "pending").length;
   const pendingApprovalCount = approvalCards.length;
@@ -715,6 +746,15 @@ export default function KanbanPage() {
             selected={selectedMission}
             onChange={setSelectedMission}
           />
+          {selectedMission && (
+            <button
+              onClick={() => handleDeleteMission(selectedMission)}
+              title="このミッションを削除"
+              className="text-zinc-700 hover:text-red-400 text-sm leading-none transition-colors shrink-0"
+            >
+              🗑
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -816,6 +856,7 @@ export default function KanbanPage() {
                       task={task}
                       pendingApprovals={approvalCards.filter((c) => c.task_id === task.id)}
                       onApprovalBadgeClick={setActiveApproval}
+                      onDelete={selectedMission ? () => handleDeleteTask(selectedMission, task.id) : undefined}
                     />
                   ))
                 )}
