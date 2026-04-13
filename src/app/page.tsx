@@ -7,11 +7,13 @@ import {
   fetchMissions,
   fetchMissionTasks,
   fetchApprovalCards,
+  fetchAgents,
   approveCard,
   denyCard,
   type Mission,
   type Task,
   type ApprovalCard,
+  type AgentStatus,
 } from "./actions";
 import type { MissionRequest } from "./api/requests/route";
 
@@ -353,8 +355,89 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
   }, [onDone]);
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-zinc-800 border border-zinc-600 text-zinc-100 text-sm px-4 py-2.5 rounded-xl shadow-2xl">
+    <div className="fixed bottom-14 left-1/2 -translate-x-1/2 z-50 bg-zinc-800 border border-zinc-600 text-zinc-100 text-sm px-4 py-2.5 rounded-xl shadow-2xl">
       {message}
+    </div>
+  );
+}
+
+// ─── AgentStatusBar ────────────────────────────────────────────────────────
+
+const STALE_THRESHOLD_S = 120;
+
+function elapsedLabel(lastSeen: string): string {
+  const diff = Math.floor((Date.now() - new Date(lastSeen).getTime()) / 1000);
+  if (diff < 60) return `${diff}s`;
+  return `${Math.floor(diff / 60)}m`;
+}
+
+function AgentStatusBar({ agents }: { agents: AgentStatus[] }) {
+  if (agents.length === 0) return null;
+
+  const orchestrators = agents.filter((a) => a.role === "orchestrator");
+  const workers = agents.filter((a) => a.role !== "orchestrator");
+
+  const renderAgent = (agent: AgentStatus) => {
+    const elapsed = Math.floor(
+      (Date.now() - new Date(agent.last_seen).getTime()) / 1000
+    );
+    const stale = elapsed > STALE_THRESHOLD_S;
+
+    return (
+      <div
+        key={agent.name}
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border shrink-0 transition-opacity ${
+          stale
+            ? "border-zinc-800 bg-zinc-900/50 opacity-40"
+            : "border-zinc-700 bg-zinc-900"
+        }`}
+      >
+        {/* Status dot */}
+        <div
+          className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+            stale ? "bg-zinc-600" : agent.role === "orchestrator" ? "bg-violet-400" : "bg-emerald-400"
+          }`}
+        />
+
+        {/* Name */}
+        <span className={`text-[11px] font-semibold ${stale ? "text-zinc-600" : "text-zinc-300"}`}>
+          {agent.name}
+        </span>
+
+        {/* Role badge for orchestrator */}
+        {agent.role === "orchestrator" && (
+          <span className="text-[9px] px-1 py-px rounded bg-violet-500/20 text-violet-400 border border-violet-500/30 font-medium leading-none">
+            orch
+          </span>
+        )}
+
+        {/* Current task */}
+        {agent.current_task_title && (
+          <span className={`text-[10px] max-w-[120px] truncate ${stale ? "text-zinc-700" : "text-zinc-500"}`}>
+            {agent.current_task_title}
+          </span>
+        )}
+
+        {/* Elapsed */}
+        <span className={`text-[10px] ml-1 ${stale ? "text-zinc-700" : "text-zinc-600"}`}>
+          {elapsedLabel(agent.last_seen)}
+        </span>
+      </div>
+    );
+  };
+
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-sm px-3 py-1.5">
+      <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
+        <span className="text-[10px] text-zinc-600 uppercase tracking-wider shrink-0 pr-1 border-r border-zinc-800">
+          Agents
+        </span>
+        {orchestrators.map(renderAgent)}
+        {orchestrators.length > 0 && workers.length > 0 && (
+          <div className="w-px h-4 bg-zinc-800 shrink-0" />
+        )}
+        {workers.map(renderAgent)}
+      </div>
     </div>
   );
 }
@@ -424,6 +507,7 @@ export default function KanbanPage() {
   const [requests, setRequests] = useState<MissionRequest[]>([]);
   const [approvalCards, setApprovalCards] = useState<ApprovalCard[]>([]);
   const [activeApproval, setActiveApproval] = useState<ApprovalCard | null>(null);
+  const [agents, setAgents] = useState<AgentStatus[]>([]);
 
   // Fetch missions once on mount
   useEffect(() => {
@@ -525,6 +609,18 @@ export default function KanbanPage() {
     fetchApprovals();
   }, [fetchApprovals]);
 
+  // Agents: 5-second polling
+  const fetchAgentsData = useCallback(async () => {
+    const data = await fetchAgents();
+    setAgents(data);
+  }, []);
+
+  useEffect(() => {
+    fetchAgentsData();
+    const t = setInterval(fetchAgentsData, 5000);
+    return () => clearInterval(t);
+  }, [fetchAgentsData]);
+
   // Requests: low-frequency polling
   const fetchReqs = useCallback(async () => {
     const data = await fetchRequestsAction();
@@ -548,7 +644,7 @@ export default function KanbanPage() {
   const pendingApprovalCount = approvalCards.length;
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white">
+    <div className="min-h-screen bg-zinc-950 text-white pb-10">
       {/* Header */}
       <header className="border-b border-zinc-800 px-4 py-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
@@ -669,6 +765,9 @@ export default function KanbanPage() {
 
       {/* Toast */}
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
+
+      {/* Agent Status Bar */}
+      <AgentStatusBar agents={agents} />
     </div>
   );
 }
