@@ -120,7 +120,9 @@ export async function bulkDeleteCards(
   let targetIds: string[];
 
   if ("ids" in filter) {
-    targetIds = filter.ids;
+    const keys = filter.ids.map((id) => `approval:${id}`);
+    const raws = await redis.mget<(string | object | null)[]>(...keys);
+    targetIds = filter.ids.filter((_, i) => raws[i] !== null);
   } else {
     const allIds = await redis.lrange<string>("approval:index", 0, -1);
     if (!allIds.length) return { deleted: 0 };
@@ -241,4 +243,26 @@ export async function fetchApprovalCards(): Promise<ApprovalCard[]> {
   return raws
     .filter((raw): raw is string | object => raw !== null)
     .map((raw) => (typeof raw === "string" ? JSON.parse(raw) : raw)) as ApprovalCard[];
+}
+
+export async function exportCards(
+  status?: "pending" | "approved" | "denied"
+): Promise<{ cards: ApprovalCard[]; count: number; exported_at: string }> {
+  const allIds = await redis.lrange<string>("approval:index", 0, -1);
+  if (!allIds.length) {
+    return { cards: [], count: 0, exported_at: new Date().toISOString() };
+  }
+
+  const keys = allIds.map((id) => `approval:${id}`);
+  const raws = await redis.mget<(string | object | null)[]>(...keys);
+
+  let cards = raws
+    .filter((raw): raw is string | object => raw !== null)
+    .map((raw) => (typeof raw === "string" ? JSON.parse(raw) : raw)) as ApprovalCard[];
+
+  if (status) {
+    cards = cards.filter((c) => c.status === status);
+  }
+
+  return { cards, count: cards.length, exported_at: new Date().toISOString() };
 }

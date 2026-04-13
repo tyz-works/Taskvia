@@ -12,6 +12,7 @@ import {
   denyCard,
   deleteCard,
   bulkDeleteCards,
+  exportCards,
   type Mission,
   type Task,
   type ApprovalCard,
@@ -667,15 +668,18 @@ export default function KanbanPage() {
   }, [fetchApprovals]);
 
   const handleExport = useCallback(async () => {
-    const res = await fetch("/api/cards/export");
-    if (!res.ok) { setToast("エクスポート失敗"); return; }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `taskvia-cards-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const data = await exportCards();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `taskvia-cards-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setToast("エクスポート失敗");
+    }
   }, []);
 
   const handleBulkDelete = useCallback(async (status: "approved" | "denied") => {
