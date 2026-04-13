@@ -1,7 +1,7 @@
 // src/app/api/requests/[id]/route.ts
 //
 // GET   /api/requests/:id — 依頼の詳細を取得する
-// PATCH /api/requests/:id — Orchestrator が依頼のステータスと mission_slug を更新する
+// PATCH /api/requests/:id — Director が依頼のステータスと mission_slug を更新する
 import { Redis } from "@upstash/redis";
 import { isAuthorized, unauthorized } from "@/lib/auth";
 import type { MissionRequest } from "../route";

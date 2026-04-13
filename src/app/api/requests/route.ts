@@ -1,6 +1,6 @@
 // src/app/api/requests/route.ts
 //
-// Orchestrator 依頼フォームの API。
+// Director 依頼フォームの API。
 //
 // Redis データ構造:
 //   mission_request:{id}      String (JSON) — MissionRequest 1件 (TTL なし)
@@ -14,7 +14,7 @@
 //   skills        string[]     必要スキル (任意)
 //   target_dir    string       対象プロジェクトの絶対パス (任意、絶対パスのみ)
 //   deadline_note string       期限メモ (任意)
-//   mission_slug  string|null  Orchestrator が処理時に書き戻す
+//   mission_slug  string|null  Director が処理時に書き戻す
 //   status        pending|processing|done|rejected
 //   created_at    string       ISO8601
 //   processed_at  string|null  処理開始/完了日時
@@ -97,7 +97,7 @@ export async function POST(req: Request) {
   await redis.set(`mission_request:${id}`, JSON.stringify(entry));
   await redis.lpush("mission_requests:index", id);
 
-  // ntfy 通知 (新規依頼をOrchestratorに知らせる)
+  // ntfy 通知 (新規依頼をDirectorに知らせる)
   const topic = process.env.NTFY_TOPIC;
   if (topic) {
     await fetch(`https://ntfy.sh/${topic}`, {
