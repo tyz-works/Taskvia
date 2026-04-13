@@ -12,10 +12,15 @@ export async function DELETE(
 
   const { id } = await params;
   const raw = await redis.get(`approval:${id}`);
-  if (!raw) return Response.json({ error: "not_found" }, { status: 404 });
 
-  await redis.del(`approval:${id}`);
+  // Always remove from index to clean up orphan entries
   await redis.lrem("approval:index", 1, id);
 
-  return Response.json({ ok: true });
+  if (!raw) {
+    // Orphan entry cleaned from index, but no actual card existed
+    return Response.json({ ok: true, deleted: 0 });
+  }
+
+  await redis.del(`approval:${id}`);
+  return Response.json({ ok: true, deleted: 1 });
 }

@@ -104,25 +104,31 @@ export async function denyCard(id: string): Promise<{ ok: boolean } | { error: s
   return { ok: true };
 }
 
-export async function deleteCard(id: string): Promise<{ ok: boolean } | { error: string }> {
+export async function deleteCard(id: string): Promise<{ ok: boolean; deleted: number }> {
   const raw = await redis.get(`approval:${id}`);
-  if (!raw) return { error: "not_found" };
 
-  await redis.del(`approval:${id}`);
+  // Always remove from index to clean up orphan entries
   await redis.lrem("approval:index", 1, id);
 
-  return { ok: true };
+  if (!raw) return { ok: true, deleted: 0 };
+
+  await redis.del(`approval:${id}`);
+  return { ok: true, deleted: 1 };
 }
 
 export async function bulkDeleteCards(
   filter: { ids: string[] } | { status: "pending" | "approved" | "denied" }
 ): Promise<{ deleted: number }> {
-  let targetIds: string[];
+  // idsToRemoveFromIndex: all IDs to LREM (including orphans)
+  // idsToDelete: only IDs with actual Redis entries
+  let idsToRemoveFromIndex: string[];
+  let idsToDelete: string[];
 
   if ("ids" in filter) {
     const keys = filter.ids.map((id) => `approval:${id}`);
     const raws = await redis.mget<(string | object | null)[]>(...keys);
-    targetIds = filter.ids.filter((_, i) => raws[i] !== null);
+    idsToRemoveFromIndex = filter.ids;
+    idsToDelete = filter.ids.filter((_, i) => raws[i] !== null);
   } else {
     const allIds = await redis.lrange<string>("approval:index", 0, -1);
     if (!allIds.length) return { deleted: 0 };
@@ -130,25 +136,40 @@ export async function bulkDeleteCards(
     const keys = allIds.map((id) => `approval:${id}`);
     const raws = await redis.mget<(string | object | null)[]>(...keys);
 
-    targetIds = allIds.filter((_, i) => {
+    idsToDelete = allIds.filter((_, i) => {
       const raw = raws[i];
       if (!raw) return false;
       const card = typeof raw === "string" ? JSON.parse(raw) : raw;
       return (card as { status: string }).status === filter.status;
     });
+    idsToRemoveFromIndex = idsToDelete;
   }
 
-  if (!targetIds.length) return { deleted: 0 };
+  if (!idsToRemoveFromIndex.length) return { deleted: 0 };
 
-  // pipeline で del + lrem をバッチ実行
-  const pipe = redis.pipeline();
-  for (const id of targetIds) {
-    pipe.del(`approval:${id}`);
-    pipe.lrem("approval:index", 1, id);
-  }
-  await pipe.exec();
+  await Promise.all([
+    ...idsToDelete.map((id) => redis.del(`approval:${id}`)),
+    ...idsToRemoveFromIndex.map((id) => redis.lrem("approval:index", 1, id)),
+  ]);
 
-  return { deleted: targetIds.length };
+  return { deleted: idsToDelete.length };
+}
+
+export async function cleanupOrphanCards(): Promise<{ cleaned: number }> {
+  const allIds = await redis.lrange<string>("approval:index", 0, -1);
+  if (!allIds.length) return { cleaned: 0 };
+
+  const keys = allIds.map((id) => `approval:${id}`);
+  const raws = await redis.mget<(string | object | null)[]>(...keys);
+
+  const orphanIds = allIds.filter((_, i) => raws[i] === null);
+  if (!orphanIds.length) return { cleaned: 0 };
+
+  await Promise.all(
+    orphanIds.map((id) => redis.lrem("approval:index", 1, id))
+  );
+
+  return { cleaned: orphanIds.length };
 }
 
 export interface Mission {
