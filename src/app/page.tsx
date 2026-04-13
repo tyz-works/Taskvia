@@ -306,7 +306,7 @@ function RequestFormModal({
       <div className="w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl overflow-hidden shadow-2xl">
         <div className="p-5 space-y-4 max-h-[85vh] overflow-y-auto">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-white font-semibold text-base">Orchestrator に依頼</h2>
+            <h2 className="text-white font-semibold text-base">Director に依頼</h2>
             <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 text-lg leading-none">✕</button>
           </div>
 
@@ -418,8 +418,10 @@ function AgentStatusBar({
 }) {
   if (agents.length === 0) return null;
 
-  const orchestrators = agents.filter((a) => a.role === "orchestrator");
-  const workers = agents.filter((a) => a.role !== "orchestrator");
+  // 後方互換: Redis に "orchestrator" が残っている場合も director として扱う
+  const isDirector = (a: AgentStatus) => a.role === "director" || a.role === "orchestrator";
+  const directors = agents.filter(isDirector);
+  const workers = agents.filter((a) => !isDirector(a));
 
   const renderAgent = (agent: AgentStatus) => {
     const elapsed = Math.floor(
@@ -440,7 +442,7 @@ function AgentStatusBar({
         {/* Status dot */}
         <div
           className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-            stale ? "bg-zinc-600" : agent.role === "orchestrator" ? "bg-violet-400" : "bg-emerald-400"
+            stale ? "bg-zinc-600" : isDirector(agent) ? "bg-violet-400" : "bg-emerald-400"
           }`}
         />
 
@@ -449,10 +451,10 @@ function AgentStatusBar({
           {agent.name}
         </span>
 
-        {/* Role badge for orchestrator */}
-        {agent.role === "orchestrator" && (
+        {/* Role badge for director */}
+        {isDirector(agent) && (
           <span className="text-[9px] px-1 py-px rounded bg-violet-500/20 text-violet-400 border border-violet-500/30 font-medium leading-none">
-            orch
+            dir
           </span>
         )}
 
@@ -488,8 +490,8 @@ function AgentStatusBar({
         <span className="text-[10px] text-zinc-600 uppercase tracking-wider shrink-0 pr-1 border-r border-zinc-800">
           Agents
         </span>
-        {orchestrators.map(renderAgent)}
-        {orchestrators.length > 0 && workers.length > 0 && (
+        {directors.map(renderAgent)}
+        {directors.length > 0 && workers.length > 0 && (
           <div className="w-px h-4 bg-zinc-800 shrink-0" />
         )}
         {workers.map(renderAgent)}
