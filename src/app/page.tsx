@@ -800,11 +800,7 @@ export default function KanbanPage() {
                     <TaskCard
                       key={task.id}
                       task={task}
-                      pendingApprovals={
-                        task.status === "in_progress"
-                          ? approvalCards.filter((c) => c.task_id === task.id)
-                          : []
-                      }
+                      pendingApprovals={approvalCards.filter((c) => c.task_id === task.id)}
                       onApprovalBadgeClick={setActiveApproval}
                     />
                   ))
