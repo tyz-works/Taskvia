@@ -10,6 +10,9 @@ import {
   fetchAgents,
   approveCard,
   denyCard,
+  deleteCard,
+  bulkDeleteCards,
+  exportCards,
   type Mission,
   type Task,
   type ApprovalCard,
@@ -68,10 +71,12 @@ function ApprovalModal({
   card,
   onClose,
   onDone,
+  onDeleted,
 }: {
   card: ApprovalCard;
   onClose: () => void;
   onDone: (action: "approved" | "denied") => void;
+  onDeleted?: () => void;
 }) {
   const [acting, setActing] = useState(false);
 
@@ -83,6 +88,13 @@ function ApprovalModal({
       await denyCard(card.id);
     }
     onDone(action === "approve" ? "approved" : "denied");
+  };
+
+  const handleDelete = async () => {
+    if (!confirm("このカードを削除しますか？")) return;
+    setActing(true);
+    await deleteCard(card.id);
+    onDeleted?.();
   };
 
   const timeAgo = (() => {
@@ -101,7 +113,17 @@ function ApprovalModal({
               <h2 className="text-white font-semibold text-base">承認リクエスト</h2>
               <p className="text-zinc-500 text-xs mt-0.5">{card.agent} · {timeAgo}</p>
             </div>
-            <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 text-lg leading-none mt-0.5">✕</button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleDelete}
+                disabled={acting}
+                title="カードを削除"
+                className="text-zinc-600 hover:text-red-400 text-sm leading-none transition-colors disabled:opacity-30"
+              >
+                🗑
+              </button>
+              <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 text-lg leading-none mt-0.5">✕</button>
+            </div>
           </div>
 
           <div className="bg-zinc-800 rounded-xl p-3 space-y-1">
@@ -639,6 +661,35 @@ export default function KanbanPage() {
     fetchReqs();
   }, [fetchReqs]);
 
+  const handleApprovalDeleted = useCallback(() => {
+    setActiveApproval(null);
+    setToast("🗑 カードを削除しました");
+    fetchApprovals();
+  }, [fetchApprovals]);
+
+  const handleExport = useCallback(async () => {
+    try {
+      const data = await exportCards();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `taskvia-cards-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setToast("エクスポート失敗");
+    }
+  }, []);
+
+  const handleBulkDelete = useCallback(async (status: "approved" | "denied") => {
+    const label = status === "approved" ? "DONE" : "BACKLOG";
+    if (!confirm(`${label} のカードをすべて削除しますか？`)) return;
+    const result = await bulkDeleteCards({ status });
+    setToast(`🗑 ${result.deleted}件削除しました`);
+    fetchApprovals();
+  }, [fetchApprovals]);
+
   const inProgressCount = tasks.filter((t) => t.status === "in_progress").length;
   const pendingRequests = requests.filter((r) => r.status === "pending").length;
   const pendingApprovalCount = approvalCards.length;
@@ -675,6 +726,28 @@ export default function KanbanPage() {
               ⚠️ {pendingApprovalCount}
             </span>
           )}
+          <button
+            onClick={handleExport}
+            title="全カードを JSON エクスポート"
+            className="px-2.5 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-400 text-xs font-medium hover:border-zinc-500 hover:text-zinc-200 active:scale-95 transition-all hidden sm:flex items-center gap-1"
+          >
+            <span>↓</span>
+            <span>Export</span>
+          </button>
+          <button
+            onClick={() => handleBulkDelete("approved")}
+            title="DONE カードを一括削除"
+            className="px-2.5 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-500 text-xs font-medium hover:border-zinc-500 hover:text-zinc-300 active:scale-95 transition-all hidden sm:block"
+          >
+            Clear Done
+          </button>
+          <button
+            onClick={() => handleBulkDelete("denied")}
+            title="BACKLOG カードを一括削除"
+            className="px-2.5 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-500 text-xs font-medium hover:border-zinc-500 hover:text-zinc-300 active:scale-95 transition-all hidden sm:block"
+          >
+            Clear Backlog
+          </button>
           <div className={`w-2 h-2 rounded-full ${loading ? "bg-zinc-600" : "bg-emerald-400"}`} />
           <button
             onClick={() => setShowRequestForm(true)}
@@ -752,6 +825,7 @@ export default function KanbanPage() {
           card={activeApproval}
           onClose={() => setActiveApproval(null)}
           onDone={handleApprovalDone}
+          onDeleted={handleApprovalDeleted}
         />
       )}
 

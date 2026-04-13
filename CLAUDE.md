@@ -293,9 +293,17 @@ CLAUDE.md の古い版で "次にやること" として挙げていた項目の
 - **`/api/cards` の認証**: UI からの同一オリジン呼び出し前提で無認証
 - **`layout.tsx` の metadata**: デフォルトの `"Create Next App"` のまま
 
+## 権限設計
+
+現状はシングルトークン方式。将来的に `agent` / `approver` / `admin` の
+3 スコープに分離し、削除操作を admin トークンのみに絞る設計案がある。
+
+詳細は [`docs/permissions-design.md`](docs/permissions-design.md) を参照。
+
 ## 次にやること (候補)
 
 1. Vercel Cron で `/api/flush-logs` を日次実行
 2. `/api/cards` に Bearer 認証 or Session Cookie を追加
 3. ログ閲覧タブを UI に追加 (`agent:logs` を lrange で表示)
 4. `layout.tsx` の metadata を "Taskvia — Agent Approval Board" 等に更新
+5. role-based token scoping の実装 (`docs/permissions-design.md` 参照)
