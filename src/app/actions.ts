@@ -157,6 +157,35 @@ export interface ApprovalCard {
   created_at: string;
 }
 
+export interface AgentStatus {
+  name: string;
+  role: string | null;
+  skills: string[];
+  current_task_id: string | null;
+  current_task_title: string | null;
+  last_seen: string;
+}
+
+export async function fetchAgents(): Promise<AgentStatus[]> {
+  const names = await redis.smembers("agent:index");
+  if (!names || names.length === 0) return [];
+
+  const keys = names.map((n) => `agent:${n}`);
+  const raws = await redis.mget<(string | object | null)[]>(...keys);
+
+  const agents = raws
+    .filter((raw): raw is string | object => raw !== null)
+    .map((raw) => (typeof raw === "string" ? JSON.parse(raw) : raw)) as AgentStatus[];
+
+  // Remove expired entries from index
+  const expired = names.filter((_, i) => raws[i] === null);
+  if (expired.length > 0) {
+    await redis.srem("agent:index", ...expired);
+  }
+
+  return agents;
+}
+
 export async function fetchApprovalCards(): Promise<ApprovalCard[]> {
   const ids = await redis.lrange<string>("approval:index", 0, 99);
   if (!ids || ids.length === 0) return [];
