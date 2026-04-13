@@ -266,6 +266,25 @@ export async function fetchApprovalCards(): Promise<ApprovalCard[]> {
     .map((raw) => (typeof raw === "string" ? JSON.parse(raw) : raw)) as ApprovalCard[];
 }
 
+export async function deleteMissionTask(slug: string, taskId: string): Promise<{ ok: boolean }> {
+  await Promise.all([
+    redis.del(`mission:${slug}:tasks:${taskId}`),
+    redis.lrem(`mission:${slug}:tasks:index`, 1, taskId),
+  ]);
+  return { ok: true };
+}
+
+export async function deleteMission(slug: string): Promise<{ ok: boolean }> {
+  const taskIds = await redis.lrange<string>(`mission:${slug}:tasks:index`, 0, -1);
+  await Promise.all([
+    ...taskIds.map((id) => redis.del(`mission:${slug}:tasks:${id}`)),
+    redis.del(`mission:${slug}:tasks:index`),
+    redis.del(`mission:${slug}`),
+    redis.lrem("mission:index", 1, slug),
+  ]);
+  return { ok: true };
+}
+
 export async function exportCards(
   status?: "pending" | "approved" | "denied"
 ): Promise<{ cards: ApprovalCard[]; count: number; exported_at: string }> {
