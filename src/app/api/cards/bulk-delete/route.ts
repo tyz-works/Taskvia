@@ -18,11 +18,19 @@ export async function POST(req: Request) {
 
   let targetIds: string[];
 
+  // idsToRemoveFromIndex: all IDs to LREM (including orphans)
+  // idsToDelete: only IDs with actual Redis entries
+  let idsToRemoveFromIndex: string[];
+  let idsToDelete: string[];
+
   if (ids) {
     if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string")) {
       return Response.json({ error: "ids must be an array of strings" }, { status: 400 });
     }
-    targetIds = ids;
+    const keys = ids.map((id) => `approval:${id}`);
+    const raws = await redis.mget<(string | object | null)[]>(...keys);
+    idsToRemoveFromIndex = ids;
+    idsToDelete = ids.filter((_, i) => raws[i] !== null);
   } else {
     if (!VALID_STATUSES.has(status!)) {
       return Response.json({ error: "invalid status" }, { status: 400 });
@@ -33,22 +41,21 @@ export async function POST(req: Request) {
     const keys = allIds.map((id) => `approval:${id}`);
     const raws = await redis.mget<(string | object | null)[]>(...keys);
 
-    targetIds = allIds.filter((_, i) => {
+    idsToDelete = allIds.filter((_, i) => {
       const raw = raws[i];
       if (!raw) return false;
       const card = typeof raw === "string" ? JSON.parse(raw) : raw;
       return (card as { status: string }).status === status;
     });
+    idsToRemoveFromIndex = idsToDelete;
   }
 
-  if (!targetIds.length) return Response.json({ deleted: 0 });
+  if (!idsToRemoveFromIndex.length) return Response.json({ deleted: 0 });
 
-  const pipeline = redis.pipeline();
-  for (const id of targetIds) {
-    pipeline.del(`approval:${id}`);
-    pipeline.lrem("approval:index", 1, id);
-  }
-  await pipeline.exec();
+  await Promise.all([
+    ...idsToDelete.map((id) => redis.del(`approval:${id}`)),
+    ...idsToRemoveFromIndex.map((id) => redis.lrem("approval:index", 1, id)),
+  ]);
 
-  return Response.json({ deleted: targetIds.length });
+  return Response.json({ deleted: idsToDelete.length });
 }

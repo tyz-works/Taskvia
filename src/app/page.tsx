@@ -12,6 +12,7 @@ import {
   denyCard,
   deleteCard,
   bulkDeleteCards,
+  cleanupOrphanCards,
   exportCards,
   type Mission,
   type Task,
@@ -690,6 +691,12 @@ export default function KanbanPage() {
     fetchApprovals();
   }, [fetchApprovals]);
 
+  const handleCleanup = useCallback(async () => {
+    const result = await cleanupOrphanCards();
+    setToast(result.cleaned > 0 ? `🧹 孤児カード ${result.cleaned}件を掃除しました` : "孤児カードはありませんでした");
+    fetchApprovals();
+  }, [fetchApprovals]);
+
   const inProgressCount = tasks.filter((t) => t.status === "in_progress").length;
   const pendingRequests = requests.filter((r) => r.status === "pending").length;
   const pendingApprovalCount = approvalCards.length;
@@ -750,6 +757,13 @@ export default function KanbanPage() {
             className="px-2.5 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-500 text-xs font-medium hover:border-zinc-500 hover:text-zinc-300 active:scale-95 transition-all hidden sm:block"
           >
             Clear Backlog
+          </button>
+          <button
+            onClick={handleCleanup}
+            title="TTL 切れで残った孤児カードを index から掃除"
+            className="px-2.5 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-600 text-xs font-medium hover:border-zinc-600 hover:text-zinc-400 active:scale-95 transition-all hidden sm:block"
+          >
+            🧹
           </button>
           <div className={`w-2 h-2 rounded-full ${loading ? "bg-zinc-600" : "bg-emerald-400"}`} />
           <button
