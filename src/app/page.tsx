@@ -407,7 +407,15 @@ function elapsedLabel(lastSeen: string): string {
   return `${Math.floor(diff / 60)}m`;
 }
 
-function AgentStatusBar({ agents }: { agents: AgentStatus[] }) {
+function AgentStatusBar({
+  agents,
+  pendingCards,
+  onApprovalClick,
+}: {
+  agents: AgentStatus[];
+  pendingCards: ApprovalCard[];
+  onApprovalClick: (card: ApprovalCard) => void;
+}) {
   if (agents.length === 0) return null;
 
   const orchestrators = agents.filter((a) => a.role === "orchestrator");
@@ -418,6 +426,7 @@ function AgentStatusBar({ agents }: { agents: AgentStatus[] }) {
       (Date.now() - new Date(agent.last_seen).getTime()) / 1000
     );
     const stale = elapsed > STALE_THRESHOLD_S;
+    const agentPending = pendingCards.filter((c) => c.agent === agent.name);
 
     return (
       <div
@@ -452,6 +461,17 @@ function AgentStatusBar({ agents }: { agents: AgentStatus[] }) {
           <span className={`text-[10px] max-w-[120px] truncate ${stale ? "text-zinc-700" : "text-zinc-500"}`}>
             {agent.current_task_title}
           </span>
+        )}
+
+        {/* Pending approval badge */}
+        {agentPending.length > 0 && (
+          <button
+            onClick={() => onApprovalClick(agentPending[0])}
+            title={`承認待ち: ${agentPending[0].tool}`}
+            className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-amber-400 text-[9px] font-bold hover:bg-amber-500/30 active:scale-95 transition-all animate-pulse"
+          >
+            ⏳ {agentPending.length}
+          </button>
         )}
 
         {/* Elapsed */}
@@ -895,7 +915,11 @@ export default function KanbanPage() {
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
 
       {/* Agent Status Bar */}
-      <AgentStatusBar agents={agents} />
+      <AgentStatusBar
+        agents={agents}
+        pendingCards={approvalCards}
+        onApprovalClick={setActiveApproval}
+      />
     </div>
   );
 }
