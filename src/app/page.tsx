@@ -463,7 +463,7 @@ function AgentStatusBar({ agents }: { agents: AgentStatus[] }) {
   };
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-sm px-3 py-1.5">
+    <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-sm px-3 py-3">
       <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
         <span className="text-[10px] text-zinc-600 uppercase tracking-wider shrink-0 pr-1 border-r border-zinc-800">
           Agents
@@ -733,7 +733,7 @@ export default function KanbanPage() {
   const pendingApprovalCount = approvalCards.length;
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white pb-10">
+    <div className="min-h-screen bg-zinc-950 text-white pb-20">
       {/* Header */}
       <header className="border-b border-zinc-800 px-4 py-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
