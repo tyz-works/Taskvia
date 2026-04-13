@@ -407,7 +407,15 @@ function elapsedLabel(lastSeen: string): string {
   return `${Math.floor(diff / 60)}m`;
 }
 
-function AgentStatusBar({ agents }: { agents: AgentStatus[] }) {
+function AgentStatusBar({
+  agents,
+  pendingCards,
+  onApprovalClick,
+}: {
+  agents: AgentStatus[];
+  pendingCards: ApprovalCard[];
+  onApprovalClick: (card: ApprovalCard) => void;
+}) {
   if (agents.length === 0) return null;
 
   const orchestrators = agents.filter((a) => a.role === "orchestrator");
@@ -418,6 +426,7 @@ function AgentStatusBar({ agents }: { agents: AgentStatus[] }) {
       (Date.now() - new Date(agent.last_seen).getTime()) / 1000
     );
     const stale = elapsed > STALE_THRESHOLD_S;
+    const agentPending = pendingCards.filter((c) => c.agent === agent.name);
 
     return (
       <div
@@ -454,6 +463,17 @@ function AgentStatusBar({ agents }: { agents: AgentStatus[] }) {
           </span>
         )}
 
+        {/* Pending approval badge */}
+        {agentPending.length > 0 && (
+          <button
+            onClick={() => onApprovalClick(agentPending[0])}
+            title={`承認待ち: ${agentPending[0].tool}`}
+            className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-amber-400 text-[9px] font-bold hover:bg-amber-500/30 active:scale-95 transition-all animate-pulse"
+          >
+            ⏳ {agentPending.length}
+          </button>
+        )}
+
         {/* Elapsed */}
         <span className={`text-[10px] ml-1 ${stale ? "text-zinc-700" : "text-zinc-600"}`}>
           {elapsedLabel(agent.last_seen)}
@@ -463,7 +483,7 @@ function AgentStatusBar({ agents }: { agents: AgentStatus[] }) {
   };
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-sm px-3 py-1.5">
+    <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-sm px-3 py-3">
       <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
         <span className="text-[10px] text-zinc-600 uppercase tracking-wider shrink-0 pr-1 border-r border-zinc-800">
           Agents
@@ -733,7 +753,7 @@ export default function KanbanPage() {
   const pendingApprovalCount = approvalCards.length;
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white pb-10">
+    <div className="min-h-screen bg-zinc-950 text-white pb-20">
       {/* Header */}
       <header className="border-b border-zinc-800 px-4 py-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
@@ -895,7 +915,11 @@ export default function KanbanPage() {
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
 
       {/* Agent Status Bar */}
-      <AgentStatusBar agents={agents} />
+      <AgentStatusBar
+        agents={agents}
+        pendingCards={approvalCards}
+        onApprovalClick={setActiveApproval}
+      />
     </div>
   );
 }
