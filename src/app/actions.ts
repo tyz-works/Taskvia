@@ -104,6 +104,51 @@ export async function denyCard(id: string): Promise<{ ok: boolean } | { error: s
   return { ok: true };
 }
 
+export async function deleteCard(id: string): Promise<{ ok: boolean } | { error: string }> {
+  const raw = await redis.get(`approval:${id}`);
+  if (!raw) return { error: "not_found" };
+
+  await redis.del(`approval:${id}`);
+  await redis.lrem("approval:index", 1, id);
+
+  return { ok: true };
+}
+
+export async function bulkDeleteCards(
+  filter: { ids: string[] } | { status: "pending" | "approved" | "denied" }
+): Promise<{ deleted: number }> {
+  let targetIds: string[];
+
+  if ("ids" in filter) {
+    targetIds = filter.ids;
+  } else {
+    const allIds = await redis.lrange<string>("approval:index", 0, -1);
+    if (!allIds.length) return { deleted: 0 };
+
+    const keys = allIds.map((id) => `approval:${id}`);
+    const raws = await redis.mget<(string | object | null)[]>(...keys);
+
+    targetIds = allIds.filter((_, i) => {
+      const raw = raws[i];
+      if (!raw) return false;
+      const card = typeof raw === "string" ? JSON.parse(raw) : raw;
+      return (card as { status: string }).status === filter.status;
+    });
+  }
+
+  if (!targetIds.length) return { deleted: 0 };
+
+  // pipeline で del + lrem をバッチ実行
+  const pipe = redis.pipeline();
+  for (const id of targetIds) {
+    pipe.del(`approval:${id}`);
+    pipe.lrem("approval:index", 1, id);
+  }
+  await pipe.exec();
+
+  return { deleted: targetIds.length };
+}
+
 export interface Mission {
   slug: string;
   title: string;
