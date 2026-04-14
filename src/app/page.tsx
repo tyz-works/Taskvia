@@ -85,19 +85,27 @@ function ApprovalModal({
 
   const handle = async (action: "approve" | "deny") => {
     setActing(true);
-    if (action === "approve") {
-      await approveCard(card.id);
-    } else {
-      await denyCard(card.id);
+    try {
+      if (action === "approve") {
+        await approveCard(card.id);
+      } else {
+        await denyCard(card.id);
+      }
+      onDone(action === "approve" ? "approved" : "denied");
+    } finally {
+      setActing(false);
     }
-    onDone(action === "approve" ? "approved" : "denied");
   };
 
   const handleDelete = async () => {
     if (!confirm("このカードを削除しますか？")) return;
     setActing(true);
-    await deleteCard(card.id);
-    onDeleted?.();
+    try {
+      await deleteCard(card.id);
+      onDeleted?.();
+    } finally {
+      setActing(false);
+    }
   };
 
   const timeAgo = (() => {
@@ -1027,6 +1035,7 @@ export default function KanbanPage() {
       {/* Approval Modal */}
       {activeApproval && (
         <ApprovalModal
+          key={activeApproval.id}
           card={activeApproval}
           onClose={() => setActiveApproval(null)}
           onDone={handleApprovalDone}
