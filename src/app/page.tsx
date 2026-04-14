@@ -170,6 +170,123 @@ function ApprovalModal({
   );
 }
 
+// ─── TaskDetailDialog ──────────────────────────────────────────────────────
+
+const STATUS_LABEL: Record<Task["status"], string> = {
+  pending:     "Backlog",
+  in_progress: "In Progress",
+  done:        "Done",
+  blocked:     "Blocked",
+};
+
+const STATUS_COLOR: Record<Task["status"], string> = {
+  pending:     "bg-zinc-700 text-zinc-400 border-zinc-600",
+  in_progress: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  done:        "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+  blocked:     "bg-red-500/20 text-red-400 border-red-500/30",
+};
+
+function TaskDetailDialog({
+  task,
+  onClose,
+}: {
+  task: Task;
+  onClose: () => void;
+}) {
+  // ESC to close
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const createdAt = new Date(task.created_at).toLocaleString("ja-JP", {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit",
+  });
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={task.title}
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl overflow-hidden shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5 space-y-4 max-h-[85vh] overflow-y-auto">
+          {/* Header */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-zinc-500 text-[10px] uppercase tracking-wider">タスク詳細</p>
+              <h2 className="text-white font-bold text-base mt-0.5 leading-snug">{task.title}</h2>
+            </div>
+            <button
+              onClick={onClose}
+              className="shrink-0 text-zinc-500 hover:text-zinc-300 text-lg leading-none mt-0.5"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Status + Priority */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${STATUS_COLOR[task.status]}`}>
+              {STATUS_LABEL[task.status]}
+            </span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${PRIORITY_BADGE[task.priority]}`}>
+              {task.priority}
+            </span>
+            <code className="text-[10px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">{task.id}</code>
+          </div>
+
+          {/* Assignee */}
+          <div className="bg-zinc-800 rounded-xl p-3 space-y-1">
+            <div className="text-[10px] text-zinc-500 uppercase tracking-wider">担当</div>
+            <div className="text-sm text-zinc-200">
+              {task.assignee ?? <span className="text-zinc-600 italic">未割り当て</span>}
+            </div>
+          </div>
+
+          {/* Skills */}
+          {task.skills.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-[10px] text-zinc-500 uppercase tracking-wider">スキル</div>
+              <div className="flex flex-wrap gap-1">
+                {task.skills.map((s) => (
+                  <span key={s} className="text-[11px] px-2 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">
+                    {s}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Blocked by */}
+          {task.blocked_by.length > 0 && (
+            <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-3 space-y-1">
+              <div className="text-[10px] text-red-400 uppercase tracking-wider">ブロック依存</div>
+              <div className="flex flex-wrap gap-1">
+                {task.blocked_by.map((dep) => (
+                  <code key={dep} className="text-[11px] text-red-300 bg-red-500/10 px-1.5 py-0.5 rounded">
+                    {dep}
+                  </code>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Created at */}
+          <div className="text-[11px] text-zinc-600 text-right">{createdAt}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── TaskCard ──────────────────────────────────────────────────────────────
 
 function TaskCard({
@@ -177,25 +294,30 @@ function TaskCard({
   pendingApprovals,
   onApprovalBadgeClick,
   onDelete,
+  onCardClick,
 }: {
   task: Task;
   pendingApprovals: ApprovalCard[];
   onApprovalBadgeClick: (card: ApprovalCard) => void;
   onDelete?: () => void;
+  onCardClick: (task: Task) => void;
 }) {
   const count = pendingApprovals.length;
 
   return (
-    <div className="rounded-xl border border-zinc-700/60 bg-zinc-900 p-3 space-y-2 text-sm">
+    <div
+      className="rounded-xl border border-zinc-700/60 bg-zinc-900 p-3 space-y-2 text-sm cursor-pointer hover:border-zinc-600 hover:bg-zinc-900/80 active:scale-[0.98] transition-all"
+      onClick={() => onCardClick(task)}
+    >
       {/* Title + priority + delete */}
       <div className="flex items-start gap-2">
-        <span className="text-zinc-100 text-xs font-medium leading-snug flex-1">{task.title}</span>
+        <span className="text-zinc-100 text-xs font-medium leading-snug flex-1 line-clamp-2">{task.title}</span>
         <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border font-medium ${PRIORITY_BADGE[task.priority]}`}>
           {task.priority}
         </span>
         {onDelete && (
           <button
-            onClick={onDelete}
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
             title="タスクを削除"
             className="shrink-0 text-zinc-700 hover:text-red-400 text-xs leading-none transition-colors"
           >
@@ -207,7 +329,7 @@ function TaskCard({
       {/* Approval badge */}
       {count > 0 && (
         <button
-          onClick={() => onApprovalBadgeClick(pendingApprovals[0])}
+          onClick={(e) => { e.stopPropagation(); onApprovalBadgeClick(pendingApprovals[0]); }}
           className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 font-medium hover:bg-amber-500/20 active:scale-95 transition-all w-full"
         >
           <span>⚠️</span>
@@ -570,6 +692,7 @@ export default function KanbanPage() {
   const [requests, setRequests] = useState<MissionRequest[]>([]);
   const [approvalCards, setApprovalCards] = useState<ApprovalCard[]>([]);
   const [activeApproval, setActiveApproval] = useState<ApprovalCard | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [agents, setAgents] = useState<AgentStatus[]>([]);
 
   // Fetch missions once on mount
@@ -876,6 +999,7 @@ export default function KanbanPage() {
                       pendingApprovals={approvalCards.filter((c) => c.task_id === task.id)}
                       onApprovalBadgeClick={setActiveApproval}
                       onDelete={selectedMission ? () => handleDeleteTask(selectedMission, task.id) : undefined}
+                      onCardClick={setSelectedTask}
                     />
                   ))
                 )}
@@ -890,6 +1014,14 @@ export default function KanbanPage() {
         <div className="min-h-[calc(100vh-97px)] bg-zinc-950">
           <LogsView logs={logs} loading={logsLoading} />
         </div>
+      )}
+
+      {/* Task Detail Dialog */}
+      {selectedTask && (
+        <TaskDetailDialog
+          task={selectedTask}
+          onClose={() => setSelectedTask(null)}
+        />
       )}
 
       {/* Approval Modal */}
