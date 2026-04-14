@@ -100,8 +100,12 @@ function ApprovalModal({
   const handleDelete = async () => {
     if (!confirm("このカードを削除しますか？")) return;
     setActing(true);
-    await deleteCard(card.id);
-    onDeleted?.();
+    try {
+      await deleteCard(card.id);
+      onDeleted?.();
+    } finally {
+      setActing(false);
+    }
   };
 
   const timeAgo = (() => {
