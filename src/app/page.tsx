@@ -11,9 +11,7 @@ import {
   approveCard,
   denyCard,
   deleteCard,
-  bulkDeleteCards,
   cleanupOrphanCards,
-  exportCards,
   deleteMissionTask,
   deleteMission,
   type Mission,
@@ -701,29 +699,6 @@ export default function KanbanPage() {
     fetchApprovals();
   }, [fetchApprovals]);
 
-  const handleExport = useCallback(async () => {
-    try {
-      const data = await exportCards();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `taskvia-cards-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      setToast("エクスポート失敗");
-    }
-  }, []);
-
-  const handleBulkDelete = useCallback(async (status: "approved" | "denied") => {
-    const label = status === "approved" ? "DONE" : "BACKLOG";
-    if (!confirm(`${label} のカードをすべて削除しますか？`)) return;
-    const result = await bulkDeleteCards({ status });
-    setToast(`🗑 ${result.deleted}件削除しました`);
-    fetchApprovals();
-  }, [fetchApprovals]);
-
   const handleCleanup = useCallback(async () => {
     const result = await cleanupOrphanCards();
     setToast(result.cleaned > 0 ? `🧹 孤児カード ${result.cleaned}件を掃除しました` : "孤児カードはありませんでした");
@@ -788,36 +763,20 @@ export default function KanbanPage() {
               {pendingRequests}
             </span>
           )}
-          {pendingApprovalCount > 0 && (
+          {pendingApprovalCount > 0 ? (
             <button
               onClick={() => setActiveApproval(approvalCards[0])}
-              className="bg-amber-500 text-black text-xs font-bold px-2 py-0.5 rounded-full animate-pulse hover:bg-amber-400 active:scale-95 transition-all"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/50 text-amber-300 text-sm font-bold hover:bg-amber-500/30 active:scale-95 transition-all animate-pulse shadow-lg shadow-amber-500/20"
             >
-              ⚠️ {pendingApprovalCount}
+              <span>⚠️</span>
+              <span>承認 {pendingApprovalCount}件</span>
             </button>
+          ) : (
+            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-800 text-zinc-600 text-xs">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
+              承認待ちなし
+            </span>
           )}
-          <button
-            onClick={handleExport}
-            title="全カードを JSON エクスポート"
-            className="px-2.5 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-400 text-xs font-medium hover:border-zinc-500 hover:text-zinc-200 active:scale-95 transition-all hidden sm:flex items-center gap-1"
-          >
-            <span>↓</span>
-            <span>Export</span>
-          </button>
-          <button
-            onClick={() => handleBulkDelete("approved")}
-            title="DONE カードを一括削除"
-            className="px-2.5 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-500 text-xs font-medium hover:border-zinc-500 hover:text-zinc-300 active:scale-95 transition-all hidden sm:block"
-          >
-            Clear Done
-          </button>
-          <button
-            onClick={() => handleBulkDelete("denied")}
-            title="BACKLOG カードを一括削除"
-            className="px-2.5 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-500 text-xs font-medium hover:border-zinc-500 hover:text-zinc-300 active:scale-95 transition-all hidden sm:block"
-          >
-            Clear Backlog
-          </button>
           <button
             onClick={handleCleanup}
             title="TTL 切れで残った孤児カードを index から掃除"
@@ -835,6 +794,27 @@ export default function KanbanPage() {
           </button>
         </div>
       </header>
+
+      {/* Approval Banner */}
+      {pendingApprovalCount > 0 && (
+        <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="text-2xl shrink-0">⚠️</span>
+            <div className="min-w-0">
+              <p className="text-amber-300 text-sm font-bold">承認待ちが {pendingApprovalCount}件あります</p>
+              {approvalCards[0] && (
+                <p className="text-amber-400/70 text-xs truncate mt-0.5">{approvalCards[0].agent} — <code className="text-amber-400/80">{approvalCards[0].tool}</code></p>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={() => setActiveApproval(approvalCards[0])}
+            className="shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500/30 border border-amber-500/50 text-amber-300 text-sm font-bold hover:bg-amber-500/40 active:scale-95 transition-all"
+          >
+            確認する →
+          </button>
+        </div>
+      )}
 
       {/* Tab switcher */}
       <nav className="border-b border-zinc-800 px-4 flex gap-1">
