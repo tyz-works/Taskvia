@@ -73,11 +73,13 @@ function ApprovalModal({
   onClose,
   onDone,
   onDeleted,
+  remainingCount,
 }: {
   card: ApprovalCard;
   onClose: () => void;
   onDone: (action: "approved" | "denied") => void;
   onDeleted?: () => void;
+  remainingCount: number;
 }) {
   const [acting, setActing] = useState(false);
 
@@ -111,8 +113,9 @@ function ApprovalModal({
         <div className="p-5 space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-white font-semibold text-base">承認リクエスト</h2>
-              <p className="text-zinc-500 text-xs mt-0.5">{card.agent} · {timeAgo}</p>
+              <p className="text-zinc-500 text-[10px] uppercase tracking-wider">承認リクエスト</p>
+              <h2 className="text-white font-bold text-2xl mt-0.5 leading-tight">{card.agent}</h2>
+              <p className="text-zinc-500 text-xs mt-0.5">{timeAgo}</p>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -140,6 +143,10 @@ function ApprovalModal({
               <code className="text-[10px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">{card.task_id}</code>
             )}
           </div>
+
+          {remainingCount > 0 && (
+            <p className="text-center text-zinc-500 text-xs">あと {remainingCount} 件</p>
+          )}
 
           <div className="grid grid-cols-2 gap-3 pt-1">
             <button
@@ -658,10 +665,15 @@ export default function KanbanPage() {
   }, [fetchApprovals]);
 
   const handleApprovalDone = useCallback((action: "approved" | "denied") => {
-    setActiveApproval(null);
+    setActiveApproval((current) => {
+      const remaining = approvalCards
+        .filter((c) => c.id !== current?.id)
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      return remaining.length > 0 ? remaining[0] : null;
+    });
     setToast(action === "approved" ? "✅ 承認しました" : "❌ 拒否しました");
     fetchApprovals();
-  }, [fetchApprovals]);
+  }, [approvalCards, fetchApprovals]);
 
   // Agents: 5-second polling
   const fetchAgentsData = useCallback(async () => {
@@ -694,7 +706,12 @@ export default function KanbanPage() {
   }, [fetchReqs]);
 
   const handleApprovalDeleted = useCallback(() => {
-    setActiveApproval(null);
+    setActiveApproval((current) => {
+      const remaining = approvalCards
+        .filter((c) => c.id !== current?.id)
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      return remaining.length > 0 ? remaining[0] : null;
+    });
     setToast("🗑 カードを削除しました");
     fetchApprovals();
   }, [fetchApprovals]);
@@ -880,6 +897,7 @@ export default function KanbanPage() {
           onClose={() => setActiveApproval(null)}
           onDone={handleApprovalDone}
           onDeleted={handleApprovalDeleted}
+          remainingCount={approvalCards.filter((c) => c.id !== activeApproval.id).length}
         />
       )}
 
