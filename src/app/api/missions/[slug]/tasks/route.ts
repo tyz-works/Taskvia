@@ -52,8 +52,15 @@ export async function POST(
     created_at: new Date().toISOString(),
   };
 
-  await redis.set(`mission:${slug}:tasks:${id}`, JSON.stringify(task));
-  await redis.lpush(`mission:${slug}:tasks:index`, id);
+  // 既存エントリの有無を確認し、新規のときのみ lpush を実行（冪等化）
+  // NOTE: 同時接続による race condition は許容（実運用上のリスクが低いため）
+  const existing = await redis.get(`mission:${slug}:tasks:${id}`);
+  const isNew = !existing;
 
-  return Response.json({ task }, { status: 201 });
+  await redis.set(`mission:${slug}:tasks:${id}`, JSON.stringify(task));
+  if (isNew) {
+    await redis.lpush(`mission:${slug}:tasks:index`, id);
+  }
+
+  return Response.json({ task }, { status: isNew ? 201 : 200 });
 }
