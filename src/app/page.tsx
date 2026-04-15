@@ -1036,7 +1036,8 @@ export default function KanbanPage() {
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
 
       {/* Approval Banner (fixed bottom, above Agent Status Bar) */}
-      {pendingApprovalCount > 0 && (
+      {/* Suppress banner while the approval dialog is open to avoid visual noise */}
+      {pendingApprovalCount > 0 && !activeApproval && (
         <div className="fixed bottom-14 left-0 right-0 z-50 bg-amber-500/10 border-t border-amber-500/30 backdrop-blur-sm px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <span className="text-lg shrink-0">⚠️</span>
