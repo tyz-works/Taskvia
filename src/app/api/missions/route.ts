@@ -31,6 +31,9 @@ export async function POST(req: Request) {
     return Response.json({ error: "slug and title are required" }, { status: 400 });
   }
 
+  const existing = await redis.get(`mission:${slug}`);
+  const isNew = !existing;
+
   const mission = {
     slug,
     title,
@@ -39,7 +42,9 @@ export async function POST(req: Request) {
   };
 
   await redis.set(`mission:${slug}`, JSON.stringify(mission));
-  await redis.lpush("mission:index", slug);
+  if (isNew) {
+    await redis.lpush("mission:index", slug);
+  }
 
-  return Response.json({ mission }, { status: 201 });
+  return Response.json({ mission }, { status: isNew ? 201 : 200 });
 }
