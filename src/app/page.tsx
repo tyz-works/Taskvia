@@ -945,26 +945,6 @@ export default function KanbanPage() {
         </div>
       </header>
 
-      {/* Approval Banner */}
-      {pendingApprovalCount > 0 && (
-        <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <span className="text-2xl shrink-0">⚠️</span>
-            <div className="min-w-0">
-              <p className="text-amber-300 text-sm font-bold">承認待ちが {pendingApprovalCount}件あります</p>
-              {approvalCards[0] && (
-                <p className="text-amber-400/70 text-xs truncate mt-0.5">{approvalCards[0].agent} — <code className="text-amber-400/80">{approvalCards[0].tool}</code></p>
-              )}
-            </div>
-          </div>
-          <button
-            onClick={() => setActiveApproval(approvalCards[0])}
-            className="shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500/30 border border-amber-500/50 text-amber-300 text-sm font-bold hover:bg-amber-500/40 active:scale-95 transition-all"
-          >
-            確認する →
-          </button>
-        </div>
-      )}
 
       {/* Tab switcher */}
       <nav className="border-b border-zinc-800 px-4 flex gap-1">
@@ -1054,6 +1034,27 @@ export default function KanbanPage() {
 
       {/* Toast */}
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
+
+      {/* Approval Banner (fixed bottom, above Agent Status Bar) */}
+      {pendingApprovalCount > 0 && (
+        <div className="fixed bottom-14 left-0 right-0 z-50 bg-amber-500/10 border-t border-amber-500/30 backdrop-blur-sm px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="text-lg shrink-0">⚠️</span>
+            <div className="min-w-0">
+              <p className="text-amber-300 text-sm font-bold">承認待ちが {pendingApprovalCount}件あります</p>
+              {approvalCards[0] && (
+                <p className="text-amber-400/70 text-xs truncate mt-0.5">{approvalCards[0].agent} — <code className="text-amber-400/80">{approvalCards[0].tool}</code></p>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={() => setActiveApproval(approvalCards[0])}
+            className="shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500/30 border border-amber-500/50 text-amber-300 text-sm font-bold hover:bg-amber-500/40 active:scale-95 transition-all"
+          >
+            確認する →
+          </button>
+        </div>
+      )}
 
       {/* Agent Status Bar */}
       <AgentStatusBar
