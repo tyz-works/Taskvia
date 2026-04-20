@@ -33,15 +33,15 @@ export async function publishApprovalRequest(
   );
 
   const baseUrl = (process.env.TASKVIA_BASE_URL ?? "https://taskvia.vercel.app").replace(/\/$/, "");
-  const approveUrl = `shortcuts://run-shortcut?name=Taskvia%20Approve&input=text&text=${encodeURIComponent(token)}`;
-  const denyUrl = `shortcuts://run-shortcut?name=Taskvia%20Deny&input=text&text=${encodeURIComponent(token)}`;
+  const approveUrl = `${baseUrl}/api/approve-token/${token}`;
+  const denyUrl = `${baseUrl}/api/deny-token/${token}`;
 
   const headers: Record<string, string> = {
     Title: `[${agent}] ${tool} 承認要求`,
     Priority: "high",
     Tags: "lock",
     Click: `${baseUrl}/requests/${requestId}`,
-    Actions: `view, ✓承認, ${approveUrl}, clear=true; view, ✗却下, ${denyUrl}, clear=true`,
+    Actions: `http, ✓承認, ${approveUrl}, method=POST, clear=true; http, ✗却下, ${denyUrl}, method=POST, clear=true`,
   };
 
   if (user && pass) {
