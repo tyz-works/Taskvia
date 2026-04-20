@@ -2,6 +2,7 @@
 import { Redis } from "@upstash/redis";
 import { nanoid } from "nanoid";
 import { isAuthorized, unauthorized } from "@/lib/auth";
+import { publishApprovalRequest } from "@/lib/ntfy";
 
 const redis = Redis.fromEnv();
 
@@ -25,20 +26,7 @@ export async function POST(req: Request) {
   await redis.set(`approval:${id}`, JSON.stringify(card), { ex: 600 });
   await redis.lpush("approval:index", id);
 
-  // ntfy 通知
-  const topic = process.env.NTFY_TOPIC;
-  if (topic) {
-    await fetch(`https://ntfy.sh/${topic}`, {
-      method: "POST",
-      body: `承認待ち: ${card.tool}`,
-      headers: {
-        Title: "Agent Approval Required",
-        Priority: "high",
-        Click: "https://taskvia.vercel.app",
-        Tags: card.priority === "high" ? "rotating_light" : "bell",
-      },
-    }).catch(() => {});
-  }
+  await publishApprovalRequest(id, card.agent ?? "Unknown", card.tool, `承認待ち: ${card.tool}`);
 
   return Response.json({ id });
 }
