@@ -10,7 +10,7 @@ Redis にバッファし、Obsidian vault に日次で flush する。
 - **リポジトリ**: `tyz-works/taskvia` (public)
 - **Vercel URL**: `taskvia.vercel.app`
 - **スタック**: Next.js 16 (App Router) + React 19 + TypeScript + Tailwind CSS v4 + Upstash Redis
-- **通知**: ntfy.sh
+- **通知**: ntfy (self-host 対応)
 - **Vault 連携**: GitHub Contents API (`tyz-works/tkworks-vault`)
 
 ## システム構成
@@ -21,10 +21,12 @@ Redis にバッファし、Obsidian vault に日次で flush する。
    ↓ stdin から {tool_name, tool_input} を受け取る
    ↓
 POST /api/request  ──→  Upstash Redis (approval:${id} + approval:index)
-                   ──→  ntfy.sh にプッシュ通知
+                   ──→  ntfy (self-host) にプッシュ通知
                                          ↓
-                                    [スマホ]
-                                         ↓
+                              [スマホ: ntfy アクションボタン]
+                              POST /api/approve-token/[token]
+                              POST /api/deny-token/[token]
+                                         ↓ または
                                     WebUI (/)
                                          ↓ 承認/拒否タップ
                                     POST /api/approve/[id]
@@ -268,7 +270,12 @@ Claude Code の PreToolUse hook として動く bash スクリプト。
 |---|---|---|
 | `UPSTASH_REDIS_REST_URL` | Redis 接続 URL | ✅ (Upstash 統合で自動注入) |
 | `UPSTASH_REDIS_REST_TOKEN` | Redis 認証トークン | ✅ (同上) |
-| `NTFY_TOPIC` | ntfy プッシュ通知トピック | 任意 (未設定なら通知スキップ) |
+| `NTFY_URL` | ntfy サーバーのベース URL（例: `https://ntfy.example.com`） | 任意 (未設定なら通知スキップ) |
+| `NTFY_TOPIC` | ntfy 通知トピック名 | 任意 (`NTFY_URL` と両方必要) |
+| `NTFY_USER` | ntfy Basic 認証ユーザー名 | 任意 (未設定なら認証なし) |
+| `NTFY_PASS` | ntfy Basic 認証パスワード | 任意 (未設定なら認証なし) |
+| `APPROVAL_TOKEN_TTL_SECONDS` | ntfy アクションボタン用ワンタイムトークンの TTL（秒） | 任意 (デフォルト: `900`) |
+| `TASKVIA_BASE_URL` | 承認 URL 生成に使うベース URL | 任意 (デフォルト: `https://taskvia.vercel.app`) |
 | `TASKVIA_TOKEN` | API Bearer 認証 | 任意 (未設定なら無認証) |
 | `GITHUB_TOKEN` | vault push 用 PAT (contents:write) | `/api/flush-logs` を使うなら必須 |
 
