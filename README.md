@@ -58,6 +58,8 @@ pnpm install
 
 `NTFY_URL` と `NTFY_TOPIC` の両方が設定されている場合のみ通知が送信される。
 
+`POST /api/request` に `"notify": true` を渡した場合のみ ntfy 通知が送出される。省略時は通知なし（既存動作を維持）。
+
 通知には iOS Shortcut / ntfy アプリで直接タップできるアクションボタンが含まれる:
 - **✓承認** → `POST /api/approve-token/[token]`
 - **✗却下** → `POST /api/deny-token/[token]`
