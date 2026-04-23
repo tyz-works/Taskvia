@@ -8,6 +8,9 @@ import {
   fetchMissionTasks,
   fetchApprovalCards,
   fetchAgents,
+  fetchVerificationRecords,
+  fetchReworkHistory,
+  getVerificationUIEnabled,
   approveCard,
   denyCard,
   deleteCard,
@@ -18,6 +21,8 @@ import {
   type Task,
   type ApprovalCard,
   type AgentStatus,
+  type VerificationRecord,
+  type ReworkCycle,
 } from "./actions";
 import type { MissionRequest } from "./api/requests/route";
 
@@ -41,6 +46,41 @@ const PRIORITY_BADGE: Record<string, string> = {
   medium: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
   low: "bg-zinc-700 text-zinc-400 border-zinc-600",
 };
+
+// ─── Verification badge (W-1: exhaustive check) ────────────────────────────
+
+type VerificationBadgeStatus = "pending" | "verifying" | "verified" | "failed" | "rework";
+
+const VERIFICATION_BADGE: Record<VerificationBadgeStatus, string> = {
+  pending:   "bg-zinc-700/20 text-zinc-500 border-zinc-600",
+  verifying: "bg-sky-500/20 text-sky-400 border-sky-500/30",
+  verified:  "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+  failed:    "bg-red-500/20 text-red-400 border-red-500/30",
+  rework:    "bg-orange-500/20 text-orange-400 border-orange-500/30",
+};
+
+// W-1: exhaustive switch — TS errors if VerificationBadgeStatus grows without this update
+function verificationIcon(s: VerificationBadgeStatus): string {
+  switch (s) {
+    case "pending":   return "○";
+    case "verifying": return "⟳";
+    case "verified":  return "✓";
+    case "failed":    return "✗";
+    case "rework":    return "↩";
+    default: {
+      const _exhaustive: never = s;
+      throw new Error("unhandled verification status: " + _exhaustive);
+    }
+  }
+}
+
+function toVerificationStatus(r: VerificationRecord | undefined): VerificationBadgeStatus {
+  if (!r) return "pending";
+  if (r.verdict === "pass") return "verified";
+  return r.rework_count > 0 ? "rework" : "failed";
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 
 const TASK_COLUMNS: { status: Task["status"]; label: string; color: string; dot: string }[] = [
   { status: "blocked",     label: "Blocked",     color: "text-red-400",     dot: "bg-red-500" },
@@ -196,11 +236,17 @@ const STATUS_COLOR: Record<Task["status"], string> = {
 
 function TaskDetailDialog({
   task,
+  verificationRecord,
+  verificationEnabled,
   onClose,
 }: {
   task: Task;
+  verificationRecord?: VerificationRecord;
+  verificationEnabled: boolean;
   onClose: () => void;
 }) {
+  const [reworkHistory, setReworkHistory] = useState<ReworkCycle[]>([]);
+
   // ESC to close
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -208,10 +254,18 @@ function TaskDetailDialog({
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
+  // Fetch rework history when dialog opens (max 15 rows = cycles 0-14)
+  useEffect(() => {
+    if (!verificationEnabled) return;
+    fetchReworkHistory(task.id).then(setReworkHistory);
+  }, [task.id, verificationEnabled]);
+
   const createdAt = new Date(task.created_at).toLocaleString("ja-JP", {
     year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit",
   });
+
+  const vStatus = toVerificationStatus(verificationRecord);
 
   return (
     <div
@@ -251,6 +305,20 @@ function TaskDetailDialog({
             <code className="text-[10px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">{task.id}</code>
           </div>
 
+          {/* Verification badge (feature flag guarded) */}
+          {verificationEnabled && (
+            <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-[11px] font-medium ${VERIFICATION_BADGE[vStatus]}`}>
+              <span aria-hidden="true">{verificationIcon(vStatus)}</span>
+              <span>{vStatus}</span>
+              {verificationRecord && verificationRecord.rework_count > 0 && (
+                <span className="ml-auto text-[10px] opacity-70">rework: {verificationRecord.rework_count}</span>
+              )}
+              {verificationRecord?.verifier && (
+                <span className="ml-auto text-[10px] opacity-60">by {verificationRecord.verifier}</span>
+              )}
+            </div>
+          )}
+
           {/* Assignee */}
           <div className="bg-zinc-800 rounded-xl p-3 space-y-1">
             <div className="text-[10px] text-zinc-500 uppercase tracking-wider">担当</div>
@@ -287,6 +355,45 @@ function TaskDetailDialog({
             </div>
           )}
 
+          {/* Rework history (feature flag guarded, max 15 rows) */}
+          {verificationEnabled && reworkHistory.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Rework 履歴</div>
+              <div className="space-y-1.5 max-h-[15lh] overflow-y-auto">
+                {reworkHistory.slice(0, 15).map((cycle) => (
+                  <div
+                    key={cycle.cycle}
+                    className={`rounded-lg border p-2.5 text-[11px] space-y-1 ${
+                      cycle.verdict === "pass"
+                        ? "border-emerald-500/20 bg-emerald-500/5"
+                        : "border-red-500/20 bg-red-500/5"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className={cycle.verdict === "pass" ? "text-emerald-400" : "text-red-400"}>
+                        {cycle.verdict === "pass" ? "✓" : "✗"} cycle {cycle.cycle}
+                      </span>
+                      {cycle.verified_at && (
+                        <span className="text-zinc-600 text-[10px] ml-auto">
+                          {new Date(cycle.verified_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      )}
+                    </div>
+                    {cycle.failed_checks.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {cycle.failed_checks.map((c, i) => (
+                          <code key={i} className="text-[10px] text-red-300 bg-red-500/10 px-1 py-0.5 rounded">
+                            {c.name}
+                          </code>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Created at */}
           <div className="text-[11px] text-zinc-600 text-right">{createdAt}</div>
         </div>
@@ -300,17 +407,22 @@ function TaskDetailDialog({
 function TaskCard({
   task,
   pendingApprovals,
+  verificationRecord,
+  verificationEnabled,
   onApprovalBadgeClick,
   onDelete,
   onCardClick,
 }: {
   task: Task;
   pendingApprovals: ApprovalCard[];
+  verificationRecord?: VerificationRecord;
+  verificationEnabled: boolean;
   onApprovalBadgeClick: (card: ApprovalCard) => void;
   onDelete?: () => void;
   onCardClick: (task: Task) => void;
 }) {
   const count = pendingApprovals.length;
+  const vStatus = toVerificationStatus(verificationRecord);
 
   return (
     <div
@@ -343,6 +455,20 @@ function TaskCard({
           <span>⚠️</span>
           <span>承認 {count}件</span>
         </button>
+      )}
+
+      {/* Verification badge (feature flag guarded, skip "pending" to reduce noise) */}
+      {verificationEnabled && vStatus !== "pending" && (
+        <div
+          className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-lg border font-medium ${VERIFICATION_BADGE[vStatus]}`}
+          title={`verification: ${vStatus}${verificationRecord?.rework_count ? ` (rework: ${verificationRecord.rework_count})` : ""}`}
+        >
+          <span aria-hidden="true">{verificationIcon(vStatus)}</span>
+          <span>{vStatus}</span>
+          {verificationRecord && verificationRecord.rework_count > 0 && (
+            <span className="ml-auto opacity-70">×{verificationRecord.rework_count}</span>
+          )}
+        </div>
       )}
 
       {/* Skills */}
@@ -574,33 +700,24 @@ function AgentStatusBar({
             : "border-zinc-700 bg-zinc-900"
         }`}
       >
-        {/* Status dot */}
         <div
           className={`w-1.5 h-1.5 rounded-full shrink-0 ${
             stale ? "bg-zinc-600" : isDirector(agent) ? "bg-violet-400" : "bg-emerald-400"
           }`}
         />
-
-        {/* Name */}
         <span className={`text-[11px] font-semibold ${stale ? "text-zinc-600" : "text-zinc-300"}`}>
           {agent.name}
         </span>
-
-        {/* Role badge for director */}
         {isDirector(agent) && (
           <span className="text-[9px] px-1 py-px rounded bg-violet-500/20 text-violet-400 border border-violet-500/30 font-medium leading-none">
             dir
           </span>
         )}
-
-        {/* Current task */}
         {agent.current_task_title && (
           <span className={`text-[10px] max-w-[120px] truncate ${stale ? "text-zinc-700" : "text-zinc-500"}`}>
             {agent.current_task_title}
           </span>
         )}
-
-        {/* Pending approval badge */}
         {agentPending.length > 0 && (
           <button
             onClick={() => onApprovalClick(agentPending[0])}
@@ -610,8 +727,6 @@ function AgentStatusBar({
             ⏳ {agentPending.length}
           </button>
         )}
-
-        {/* Elapsed */}
         <span className={`text-[10px] ml-1 ${stale ? "text-zinc-700" : "text-zinc-600"}`}>
           {elapsedLabel(agent.last_seen)}
         </span>
@@ -703,6 +818,15 @@ export default function KanbanPage() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [agents, setAgents] = useState<AgentStatus[]>([]);
 
+  // Verification UI feature flag (CREWVIA_VERIFICATION_UI env, server-side read)
+  const [verificationEnabled, setVerificationEnabled] = useState(true);
+  const [verificationRecords, setVerificationRecords] = useState<Record<string, VerificationRecord>>({});
+
+  // Read feature flag once on mount
+  useEffect(() => {
+    getVerificationUIEnabled().then(setVerificationEnabled);
+  }, []);
+
   // Fetch missions once on mount
   useEffect(() => {
     fetchMissions().then((data) => {
@@ -716,7 +840,6 @@ export default function KanbanPage() {
   // Fetch tasks whenever selectedMission changes
   const loadTasks = useCallback(async (): Promise<Task[]> => {
     if (!selectedMission) {
-      // All missions: fetch and merge
       const allMissions = await fetchMissions();
       const results = await Promise.all(allMissions.map((m) => fetchMissionTasks(m.slug)));
       const merged = results.flat();
@@ -743,7 +866,20 @@ export default function KanbanPage() {
       if (cancelled || document.visibilityState !== "visible") return;
       const latest = await loadTasks();
       if (cancelled) return;
-      const hasActive = latest.some((t) => t.status === "in_progress");
+
+      // Fetch verification records for all visible tasks (W-2: verifying detection)
+      let vRecords: Record<string, VerificationRecord> = {};
+      if (verificationEnabled && latest.length > 0) {
+        vRecords = await fetchVerificationRecords(latest.map((t) => t.id));
+        if (!cancelled) setVerificationRecords(vRecords);
+      }
+
+      // W-2: hasActive includes "verifying" — in_progress tasks without a verification
+      // record yet may currently be undergoing verification
+      const verificationActive = latest.some(
+        (t) => t.status === "in_progress" && !vRecords[t.id]
+      );
+      const hasActive = latest.some((t) => t.status === "in_progress") || verificationActive;
       const delay = hasActive ? POLL_ACTIVE_MS : POLL_IDLE_MS;
       timer = setTimeout(tick, delay);
     };
@@ -766,7 +902,7 @@ export default function KanbanPage() {
       if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [loadTasks, tab]);
+  }, [loadTasks, tab, verificationEnabled]);
 
   // Logs: fetch once on tab switch
   const fetchLogs = useCallback(async () => {
@@ -945,8 +1081,7 @@ export default function KanbanPage() {
         </div>
       </header>
 
-
-      {/* Tab switcher */}
+      {/* Tab switcher (Board / Logs / Verification Queue link) */}
       <nav className="border-b border-zinc-800 px-4 flex gap-1">
         {(["board", "logs"] as const).map((key) => (
           <button
@@ -961,6 +1096,15 @@ export default function KanbanPage() {
             {key === "board" ? "Board" : "Logs"}
           </button>
         ))}
+        {/* W-3: verification queue tab link (feature flag guarded) */}
+        {verificationEnabled && (
+          <a
+            href="/verification-queue"
+            className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider transition-colors text-zinc-500 hover:text-sky-400 border-b-2 border-transparent hover:border-sky-400"
+          >
+            Verification
+          </a>
+        )}
       </nav>
 
       {/* Board */}
@@ -985,6 +1129,8 @@ export default function KanbanPage() {
                       key={task.id}
                       task={task}
                       pendingApprovals={approvalCards.filter((c) => c.task_id === task.id)}
+                      verificationRecord={verificationRecords[task.id]}
+                      verificationEnabled={verificationEnabled}
                       onApprovalBadgeClick={setActiveApproval}
                       onDelete={selectedMission ? () => handleDeleteTask(selectedMission, task.id) : undefined}
                       onCardClick={setSelectedTask}
@@ -1008,6 +1154,8 @@ export default function KanbanPage() {
       {selectedTask && (
         <TaskDetailDialog
           task={selectedTask}
+          verificationRecord={verificationRecords[selectedTask.id]}
+          verificationEnabled={verificationEnabled}
           onClose={() => setSelectedTask(null)}
         />
       )}
@@ -1036,7 +1184,6 @@ export default function KanbanPage() {
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
 
       {/* Approval Banner (fixed bottom, above Agent Status Bar) */}
-      {/* Suppress banner while the approval dialog is open to avoid visual noise */}
       {pendingApprovalCount > 0 && !activeApproval && (
         <div className="fixed bottom-14 left-0 right-0 z-50 bg-amber-500/10 border-t border-amber-500/30 backdrop-blur-sm px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">

@@ -274,6 +274,84 @@ export async function deleteMissionTask(slug: string, taskId: string): Promise<{
   return { ok: true };
 }
 
+// ─── Verification server actions ──────────────────────────────────────────
+
+export type VerificationVerdict = "pass" | "fail";
+
+export interface VerificationRecord {
+  task_id: string;
+  mission_slug: string | null;
+  mode: string;
+  verdict: VerificationVerdict;
+  rework_count: number;
+  verified_at: string | null;
+  verifier: string | null;
+  received_at: string;
+}
+
+export interface ReworkCycle {
+  cycle: number;
+  verdict: VerificationVerdict;
+  failed_checks: { name: string; status: string; duration_s?: number }[];
+  verified_at: string | null;
+}
+
+export async function getVerificationUIEnabled(): Promise<boolean> {
+  return process.env.CREWVIA_VERIFICATION_UI !== "disabled";
+}
+
+export async function fetchVerificationRecords(
+  taskIds: string[]
+): Promise<Record<string, VerificationRecord>> {
+  if (!taskIds.length) return {};
+  const keys = taskIds.map((id) => `verification:${id}`);
+  const raws = await redis.mget<(string | object | null)[]>(...keys);
+  const result: Record<string, VerificationRecord> = {};
+  taskIds.forEach((id, i) => {
+    const raw = raws[i];
+    if (!raw) return;
+    result[id] = typeof raw === "string" ? JSON.parse(raw) : (raw as VerificationRecord);
+  });
+  return result;
+}
+
+export async function fetchReworkHistory(taskId: string): Promise<ReworkCycle[]> {
+  const raws = await redis.lrange(`verification:history:${taskId}`, 0, 14);
+  return raws
+    .map((raw) => {
+      const data = typeof raw === "string" ? JSON.parse(raw) : raw;
+      return {
+        cycle: (data as { rework_count?: number }).rework_count ?? 0,
+        verdict: (data as { verdict: VerificationVerdict }).verdict,
+        failed_checks: ((data as { checks?: { name: string; status: string; duration_s?: number }[] }).checks ?? []).filter(
+          (c) => c.status === "fail"
+        ),
+        verified_at: (data as { verified_at?: string | null }).verified_at ?? null,
+      };
+    })
+    .sort((a, b) => a.cycle - b.cycle);
+}
+
+export async function fetchVerificationQueue(
+  missionSlug: string
+): Promise<VerificationRecord[]> {
+  const taskIds = await redis.lrange(`verification:index:${missionSlug}`, 0, -1);
+  if (!taskIds.length) return [];
+  const keys = taskIds.map((id) => `verification:${id}`);
+  const raws = await redis.mget<(string | object | null)[]>(...keys);
+  const records: VerificationRecord[] = [];
+  const expired: string[] = [];
+  taskIds.forEach((id, i) => {
+    const raw = raws[i];
+    if (!raw) { expired.push(id); return; }
+    records.push(typeof raw === "string" ? JSON.parse(raw) : (raw as VerificationRecord));
+  });
+  if (expired.length) {
+    await Promise.all(expired.map((id) => redis.lrem(`verification:index:${missionSlug}`, 1, id)));
+  }
+  return records;
+}
+
 export async function deleteMission(slug: string): Promise<{ ok: boolean }> {
   const taskIds = await redis.lrange<string>(`mission:${slug}:tasks:index`, 0, -1);
   await Promise.all([
