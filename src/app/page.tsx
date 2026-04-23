@@ -460,13 +460,14 @@ function TaskCard({
       {/* Verification badge (feature flag guarded, skip "pending" to reduce noise) */}
       {verificationEnabled && vStatus !== "pending" && (
         <div
+          role="status"
+          aria-label={`verification ${vStatus}${verificationRecord && verificationRecord.rework_count > 0 ? `, rework ${verificationRecord.rework_count} of ${verificationRecord.max_rework ?? 3}` : ""}`}
           className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-lg border font-medium ${VERIFICATION_BADGE[vStatus]}`}
-          title={`verification: ${vStatus}${verificationRecord?.rework_count ? ` (rework: ${verificationRecord.rework_count})` : ""}`}
         >
           <span aria-hidden="true">{verificationIcon(vStatus)}</span>
           <span>{vStatus}</span>
           {verificationRecord && verificationRecord.rework_count > 0 && (
-            <span className="ml-auto opacity-70">×{verificationRecord.rework_count}</span>
+            <span className="ml-auto opacity-70">rework: {verificationRecord.rework_count}/{verificationRecord.max_rework ?? 3}</span>
           )}
         </div>
       )}

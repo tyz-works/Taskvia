@@ -127,7 +127,7 @@ export default async function VerificationQueuePage() {
                       {/* Rework count */}
                       {r.rework_count > 0 && (
                         <span className="text-orange-400 text-[10px] shrink-0">
-                          rework: {r.rework_count}
+                          rework: {r.rework_count}/{r.max_rework ?? 3}
                         </span>
                       )}
 

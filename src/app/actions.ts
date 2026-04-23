@@ -284,6 +284,7 @@ export interface VerificationRecord {
   mode: string;
   verdict: VerificationVerdict;
   rework_count: number;
+  max_rework?: number;
   verified_at: string | null;
   verifier: string | null;
   received_at: string;
