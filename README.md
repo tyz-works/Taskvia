@@ -52,11 +52,21 @@ pnpm install
 | 変数名 | 説明 | デフォルト |
 |--------|------|-----------|
 | `NTFY_URL` | ntfy サーバーのベース URL（例: `https://ntfy.example.com`） | (空) — 未設定なら通知スキップ |
-| `NTFY_TOPIC` | 通知を送るトピック名 | (空) — 未設定なら通知スキップ |
+| `NTFY_TOPIC` | 通知を送るトピック名（例: `taskvia-approval-xxxxxxxx`） | (空) — 未設定なら通知スキップ |
 | `NTFY_USER` | ntfy Basic 認証のユーザー名 | (空) — 未設定なら認証なし |
 | `NTFY_PASS` | ntfy Basic 認証のパスワード | (空) — 未設定なら認証なし |
 
-`NTFY_URL` と `NTFY_TOPIC` の両方が設定されている場合のみ通知が送信される。
+`NTFY_URL` と `NTFY_TOPIC` の両方が設定されている場合のみ通知が送信される。どちらかが空の場合 `publishApprovalRequest()` は**即時 return（ログなし）**する。
+
+`POST /api/request` に `"notify": true` を渡した場合のみ ntfy 通知が送出される。省略時は通知なし（既存動作を維持）。
+
+> **トピック名の命名規則**: self-host ntfy サーバーで ACL（`taskvia-approval-*` パターンのみ subscribe 許可）を運用している場合、`NTFY_TOPIC` は `taskvia-approval-` プレフィックスで始める必要がある。
+
+> **⚠️ Vercel 本番環境での注意**
+>
+> Vercel の本番環境変数は `.env.local` と**完全に独立**している。ローカルで動作確認済みでも、Vercel ダッシュボードの **Settings > Environment Variables** に別途 `NTFY_TOPIC` 等を投入しなければ通知は届かない。
+>
+> `vercel env ls` で変数名が表示されていても、値が空の場合がある（Encrypted 表示では空値を区別できない）。デプロイ後は必ず本番 URL に対してテスト通知を送り、iPhone への着信を目視確認すること。
 
 通知には iOS Shortcut / ntfy アプリで直接タップできるアクションボタンが含まれる:
 - **✓承認** → `POST /api/approve-token/[token]`
@@ -166,6 +176,57 @@ Upstash Redis 統合を Vercel ダッシュボードで追加すると `UPSTASH_
 | `GET` | `/api/cards` | カンバン UI 用カード一覧（認証なし） |
 | `POST` | `/api/log` | ナレッジ・改善案ログ投入 |
 | `POST` | `/api/flush-logs` | `agent:logs` を Obsidian vault に push |
+
+## トラブルシュート
+
+### 通知が iPhone に届かない
+
+**手順 1 — ntfy サーバー直接確認**
+
+```bash
+curl -u <NTFY_USER>:<NTFY_PASS> \
+  -H "Title: test" -d "hello" \
+  https://<NTFY_URL>/<NTFY_TOPIC>
+# → 200 なら ntfy サーバーは正常
+# → 401/403 なら認証情報を確認（NTFY_USER / NTFY_PASS の設定ミス）
+```
+
+**手順 2 — Taskvia → ntfy 区間の確認**
+
+```bash
+curl -X POST https://taskvia.vercel.app/api/request \
+  -H "Authorization: Bearer <TASKVIA_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"tool":"test","agent":"debug","task_title":"test","notify":true}'
+# → レスポンスの id を使って /api/status/<id> をポーリングし、pending のまま動かなければ ntfy 送信に失敗している
+```
+
+**手順 3 — Vercel 本番 env の確認（最重要）**
+
+`NTFY_URL` / `NTFY_TOPIC` / `NTFY_USER` / `NTFY_PASS` が Vercel の **production** 環境に設定されているか確認する。
+
+```bash
+vercel env ls
+# 変数名が表示されていても値が空の場合がある。
+# 確認するには vercel env pull .env.verify --environment=production で値を取得し、空でないことを確認する。
+```
+
+> **よくある罠（教訓 L1）**: `.env.local` で動作確認済みでも、Vercel 本番の環境変数は独立している。`NTFY_TOPIC` が空値のまま本番にデプロイされると、`publishApprovalRequest()` は**ログなしで即時 return** する（`if (!ntfyUrl || !topic) return;`）。エラーも出ないため原因特定が難しい。
+
+### ntfy 通知は来るが approve-token/deny-token が 404
+
+- トークンの TTL (`APPROVAL_TOKEN_TTL_SECONDS`、デフォルト 900 秒) が切れている可能性がある
+- Upstash Redis で `SCAN 0 MATCH approval_token:*` を実行し、対象トークンが残存しているか確認する
+- `approval_token:<token>` の `request_id` フィールドで `approval:<id>` カードとの紐付けを確認できる（教訓 L3）
+
+### ntfy 送信のデバッグ方法
+
+`publishApprovalRequest()` は失敗をログに残さない（教訓 L2）。Silent fail を検出するには:
+
+- Upstash コンソールまたは `SCAN 0 MATCH approval_token:*` でトークンが生成されているか確認する
+  - トークンが存在すれば `publishApprovalRequest()` は実行されている（ntfy.ts L22〜L33 のトークン生成が通った証拠）
+  - トークンがなければ `if (!ntfyUrl || !topic) return;`（L19）で early return している → env var を確認
+- Vercel Observability → Functions ログで `/api/request` の実行ログを確認する
 
 ## スタック
 
