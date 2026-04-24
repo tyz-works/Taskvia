@@ -83,6 +83,12 @@ pnpm install
 
 `TASKVIA_BASE_URL` は自己ホストする場合に設定する。Vercel にデプロイして `taskvia.vercel.app` を使う場合は省略可。
 
+#### Verification UI
+
+| 変数名 | 説明 | デフォルト |
+|--------|------|-----------|
+| `CREWVIA_VERIFICATION_UI` | Verification バッジ・タブの表示制御。`disabled` にすると全 verification UI が非表示になり、`/verification-queue` は `/` にリダイレクト。ロールバック時に使用。 | (空) — 未設定なら表示 |
+
 #### その他
 
 | 変数名 | 説明 | デフォルト |
@@ -176,6 +182,78 @@ Upstash Redis 統合を Vercel ダッシュボードで追加すると `UPSTASH_
 | `GET` | `/api/cards` | カンバン UI 用カード一覧（認証なし） |
 | `POST` | `/api/log` | ナレッジ・改善案ログ投入 |
 | `POST` | `/api/flush-logs` | `agent:logs` を Obsidian vault に push |
+| `POST` | `/api/verification` | crewvia → Taskvia verification 結果 push（Bearer 必須） |
+| `GET` | `/api/verification-queue` | mission 別 verification キュー取得（`?mission=<slug>` 必須） |
+| `GET` | `/api/cards/[id]/verification` | タスク別 verification 最新結果取得 |
+| `GET` | `/api/cards/[id]/rework-history` | タスク別 rework cycle 履歴取得（最大 15 件） |
+
+## Verification UI
+
+crewvia QA レイヤーの検証結果を Taskvia Board 上で可視化する機能です。
+
+### バッジ 5 状態
+
+Task カードの右下に verification バッジが表示されます（`CREWVIA_VERIFICATION_UI` 未設定時）。
+
+| バッジ | 色 | アイコン | 意味 |
+|--------|-----|--------|------|
+| `pending` | グレー | `○` | 未検証 |
+| `verifying` | 青 | `⟳` | 検証進行中 |
+| `verified` | 緑 | `✓` | 検証通過 |
+| `failed` | 赤 | `✗` | 検証失敗 |
+| `rework: N/3` | オレンジ | `↩` | rework 中（N 回実施済み / 最大 M 回） |
+
+すべての状態でアイコンと色を併用しています（色覚バリア対応）。
+
+### Verification Queue タブ
+
+Header nav の「Verification」リンクから `/verification-queue` ページに遷移します。
+
+- mission 別にグルーピングされた verification 待ちタスク一覧を表示
+- `verifying → failed → rework → verified` の優先順で並び替え
+- 5 秒 polling で自動更新（タブを開いたままにしておくと自動反映）
+
+### Card 展開時の rework 履歴
+
+タスクカードをクリックして詳細ダイアログを開くと、rework 履歴が cycle 順に表示されます。
+
+- 各 cycle: verdict（✓/✗）+ 失敗 check 一覧 + 実施日時
+- 最大 15 cycle まで表示
+
+### Feature flag によるロールバック
+
+```bash
+# Vercel 環境変数に追加して再デプロイすることで UI を無効化
+CREWVIA_VERIFICATION_UI=disabled
+```
+
+設定時の挙動:
+- verification バッジが非表示
+- Header nav の「Verification」リンクが非表示
+- `/verification-queue` は `/` にリダイレクト（307）
+- Board / Logs タブ・承認フローは通常通り動作
+
+> **⚠️ Vercel 本番環境での注意（教訓 L1 継承）**
+>
+> 環境変数の追加・変更は `.env.local` と**完全に独立**している。Vercel ダッシュボードの
+> **Settings > Environment Variables** で設定後、必ず再デプロイすること。
+> `vercel env ls` で名前が表示されていても値が空の場合がある。
+
+### E2E テスト方法
+
+```bash
+# pnpm dev + localhost 推奨（Preview SSO は自動テストの障壁になる — 教訓 L4）
+cd ~/workspace/Taskvia && pnpm dev
+
+# 別ターミナル: harness で verification データを投入
+cd ~/workspace/crewvia && bash scripts/e2e_harness_task090.sh
+```
+
+> **E2E の前提**: Board にカードを表示するには `POST /api/request` による `approval:*` カード作成が必要です。
+> `POST /api/verification` だけ投入しても Board に表示されません（教訓 L6）。
+> ハーネスは 2 段階フロー（`create_card → post_verification`）で実装済みです。
+
+---
 
 ## トラブルシュート
 
@@ -227,6 +305,55 @@ vercel env ls
   - トークンが存在すれば `publishApprovalRequest()` は実行されている（ntfy.ts L22〜L33 のトークン生成が通った証拠）
   - トークンがなければ `if (!ntfyUrl || !topic) return;`（L19）で early return している → env var を確認
 - Vercel Observability → Functions ログで `/api/request` の実行ログを確認する
+
+### Verification バッジが Board に表示されない（教訓 L6）
+
+Board は `approval:index` → `approval:{id}` を読み、カードの `task_id` で `verification:{task_id}` を紐付けます。
+`POST /api/verification` だけ投入しても Board にカードが表示されません。
+
+**対策**:
+1. まず `POST /api/request` でカードを作成し、`task_id` を確認する
+2. その `task_id` で `POST /api/verification` を投入する
+3. crewvia 側 `taskvia-verification-sync.sh` が `POST /api/request` → task_id 発行の流れを経由しているか確認する
+
+### approval card が消えて verification データが孤立する（教訓 L7）
+
+`approval:{id}` の TTL は 600 秒です。カード作成から verification 投入まで時間が空くと、カードが消滅して orphan index が残ります。
+
+**対策**:
+- verification データは `POST /api/request` 直後に連続投入する（5 秒間隔が目安）
+- TTL を延長する場合は `APPROVAL_TOKEN_TTL_SECONDS` の調整を検討する
+- `SCAN 0 MATCH approval:*` で残存カードを確認できる
+
+### Preview URL への POST が 403 / SSO blocked（教訓 L4）
+
+Vercel Preview は Team SSO 保護下にある場合、外部 POST リクエストがブロックされます。
+
+**対策**:
+- E2E テストは `pnpm dev` ローカル + 共有 Upstash Redis で実施する（推奨）
+- Preview SSO をバイパスするには `VERCEL_AUTOMATION_BYPASS_SECRET` 環境変数の設定が必要（Vercel ドキュメント参照）
+
+### `vercel curl` で POST ができない（教訓 L5）
+
+`vercel curl` コマンド（v50.37.3 以前）は `-X POST` / `--request` フラグを受け付けません。
+
+**対策**:
+- 通常の `curl` に `Authorization: Bearer <TASKVIA_TOKEN>` を付けて使用する
+- `vercel@52.0.0` 以降では改善されている可能性がある
+
+### `CREWVIA_VERIFICATION_UI` が効かない（教訓 L8）
+
+この変数は `NEXT_PUBLIC_` プレフィックスが**不要**です。Server Component / Server Action でサーバーサイドで読み取ります。
+
+```bash
+# ✅ 正しい
+CREWVIA_VERIFICATION_UI=disabled
+
+# ❌ 誤り（クライアントサイドに公開する必要はない）
+NEXT_PUBLIC_CREWVIA_VERIFICATION_UI=disabled
+```
+
+---
 
 ## スタック
 
