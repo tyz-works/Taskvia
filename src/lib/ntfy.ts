@@ -36,21 +36,30 @@ export async function publishApprovalRequest(
   const approveUrl = `${baseUrl}/api/approve-token/${token}`;
   const denyUrl = `${baseUrl}/api/deny-token/${token}`;
 
+  const payload = {
+    topic,
+    title: `[${agent}] ${tool} 承認要求`,
+    message: summary,
+    priority: 4,
+    tags: ["lock"],
+    click: `${baseUrl}/requests/${requestId}`,
+    actions: [
+      { action: "http", label: "✓承認", url: approveUrl, method: "POST", clear: true },
+      { action: "http", label: "✗却下", url: denyUrl, method: "POST", clear: true },
+    ],
+  };
+
   const headers: Record<string, string> = {
-    Title: `[${agent}] ${tool} 承認要求`,
-    Priority: "high",
-    Tags: "lock",
-    Click: `${baseUrl}/requests/${requestId}`,
-    Actions: `http, ✓承認, ${approveUrl}, method=POST, clear=true; http, ✗却下, ${denyUrl}, method=POST, clear=true`,
+    "Content-Type": "application/json",
   };
 
   if (user && pass) {
     headers["Authorization"] = `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;
   }
 
-  const res = await fetch(`${ntfyUrl}/${topic}`, {
+  const res = await fetch(ntfyUrl, {
     method: "POST",
-    body: summary,
+    body: JSON.stringify(payload),
     headers,
   }).catch((e) => {
     console.error("[ntfy] publish failed:", e);
