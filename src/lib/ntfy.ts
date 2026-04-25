@@ -5,6 +5,33 @@ const redis = Redis.fromEnv();
 
 const TOKEN_TTL = parseInt(process.env.APPROVAL_TOKEN_TTL_SECONDS ?? "900", 10);
 
+async function ntfyPublish(payload: Record<string, unknown>): Promise<void> {
+  const ntfyUrl = (process.env.NTFY_URL ?? "").replace(/\/$/, "");
+  const topic = process.env.NTFY_TOPIC;
+  const user = process.env.NTFY_USER;
+  const pass = process.env.NTFY_PASS;
+
+  if (!ntfyUrl || !topic) return;
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (user && pass) {
+    headers["Authorization"] = `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;
+  }
+
+  const res = await fetch(ntfyUrl, {
+    method: "POST",
+    body: JSON.stringify({ topic, ...payload }),
+    headers,
+  }).catch((e) => {
+    console.error("[ntfy] publish failed:", e);
+    return null;
+  });
+
+  if (res && !res.ok) {
+    console.error(`[ntfy] publish error: ${res.status} ${res.statusText}`, await res.text().catch(() => ""));
+  }
+}
+
 export async function publishApprovalRequest(
   requestId: string,
   agent: string,
@@ -13,8 +40,6 @@ export async function publishApprovalRequest(
 ): Promise<void> {
   const ntfyUrl = (process.env.NTFY_URL ?? "").replace(/\/$/, "");
   const topic = process.env.NTFY_TOPIC;
-  const user = process.env.NTFY_USER;
-  const pass = process.env.NTFY_PASS;
 
   if (!ntfyUrl || !topic) return;
 
@@ -25,6 +50,8 @@ export async function publishApprovalRequest(
     `approval_token:${token}`,
     JSON.stringify({
       request_id: requestId,
+      agent,
+      tool,
       decision: null,
       expires_at: expiresAt,
       consumed_at: null,
@@ -36,8 +63,7 @@ export async function publishApprovalRequest(
   const approveUrl = `${baseUrl}/api/approve-token/${token}`;
   const denyUrl = `${baseUrl}/api/deny-token/${token}`;
 
-  const payload = {
-    topic,
+  await ntfyPublish({
     title: `[${agent}] ${tool} 承認要求`,
     message: summary,
     priority: 4,
@@ -47,26 +73,36 @@ export async function publishApprovalRequest(
       { action: "http", label: "✓承認", url: approveUrl, method: "POST", clear: true },
       { action: "http", label: "✗却下", url: denyUrl, method: "POST", clear: true },
     ],
-  };
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-
-  if (user && pass) {
-    headers["Authorization"] = `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;
-  }
-
-  const res = await fetch(ntfyUrl, {
-    method: "POST",
-    body: JSON.stringify(payload),
-    headers,
-  }).catch((e) => {
-    console.error("[ntfy] publish failed:", e);
-    return null;
   });
+}
 
-  if (res && !res.ok) {
-    console.error(`[ntfy] publish error: ${res.status} ${res.statusText}`, await res.text().catch(() => ""));
-  }
+export async function publishResultNotification(
+  decision: "approved" | "denied",
+  tool: string,
+  agent: string,
+): Promise<void> {
+  const isApproved = decision === "approved";
+  await ntfyPublish({
+    title: isApproved
+      ? `✅ 承認しました: ${tool}`
+      : `❌ 却下しました: ${tool}`,
+    message: `${agent} の ${tool} を${isApproved ? "承認" : "却下"}しました`,
+    priority: 3,
+    tags: [isApproved ? "white_check_mark" : "x"],
+  });
+}
+
+export async function publishErrorNotification(
+  errorType: "expired" | "already_used",
+): Promise<void> {
+  await ntfyPublish({
+    title: errorType === "expired"
+      ? "⚠️ トークン期限切れ"
+      : "⚠️ 処理済みトークン",
+    message: errorType === "expired"
+      ? "承認トークンの有効期限が切れています"
+      : "このトークンは既に処理されています",
+    priority: 3,
+    tags: ["warning"],
+  });
 }
