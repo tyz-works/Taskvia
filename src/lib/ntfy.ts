@@ -48,9 +48,16 @@ export async function publishApprovalRequest(
     headers["Authorization"] = `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;
   }
 
-  await fetch(`${ntfyUrl}/${topic}`, {
+  const res = await fetch(`${ntfyUrl}/${topic}`, {
     method: "POST",
     body: summary,
     headers,
-  }).catch(() => {});
+  }).catch((e) => {
+    console.error("[ntfy] publish failed:", e);
+    return null;
+  });
+
+  if (res && !res.ok) {
+    console.error(`[ntfy] publish error: ${res.status} ${res.statusText}`, await res.text().catch(() => ""));
+  }
 }
