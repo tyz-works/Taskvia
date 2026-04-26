@@ -222,6 +222,7 @@ export interface ApprovalCard {
   task_id: string | null;
   priority: "high" | "medium" | "low";
   status: "pending" | "approved" | "denied";
+  project: string;
   created_at: string;
 }
 

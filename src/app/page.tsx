@@ -184,6 +184,9 @@ function ApprovalModal({
           </div>
 
           <div className="flex items-center gap-2">
+            <span className="text-[10px] px-1.5 py-0.5 rounded border font-medium bg-violet-500/20 text-violet-400 border-violet-500/30">
+              {card.project}
+            </span>
             <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${PRIORITY_BADGE[card.priority] ?? PRIORITY_BADGE.medium}`}>
               {card.priority}
             </span>
@@ -815,6 +818,7 @@ export default function KanbanPage() {
   const [logsLoading, setLogsLoading] = useState(false);
   const [requests, setRequests] = useState<MissionRequest[]>([]);
   const [approvalCards, setApprovalCards] = useState<ApprovalCard[]>([]);
+  const [approvalProjectFilter, setApprovalProjectFilter] = useState<string | null>(null);
   const [activeApproval, setActiveApproval] = useState<ApprovalCard | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [agents, setAgents] = useState<AgentStatus[]>([]);
@@ -1047,7 +1051,11 @@ export default function KanbanPage() {
 
   const inProgressCount = tasks.filter((t) => t.status === "in_progress").length;
   const pendingRequests = requests.filter((r) => r.status === "pending").length;
-  const pendingApprovalCount = approvalCards.length;
+  const filteredApprovalCards = approvalProjectFilter
+    ? approvalCards.filter((c) => c.project === approvalProjectFilter)
+    : approvalCards;
+  const approvalProjects = [...new Set(approvalCards.map((c) => c.project))].sort();
+  const pendingApprovalCount = filteredApprovalCards.length;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white pb-20">
@@ -1087,7 +1095,7 @@ export default function KanbanPage() {
           )}
           {pendingApprovalCount > 0 ? (
             <button
-              onClick={() => setActiveApproval(approvalCards[0])}
+              onClick={() => setActiveApproval(filteredApprovalCards[0])}
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500/50 text-amber-300 text-sm font-bold hover:bg-amber-500/30 active:scale-95 transition-all animate-pulse shadow-lg shadow-amber-500/20"
             >
               <span>⚠️</span>
@@ -1098,6 +1106,18 @@ export default function KanbanPage() {
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
               承認待ちなし
             </span>
+          )}
+          {approvalProjects.length > 1 && (
+            <select
+              value={approvalProjectFilter ?? ""}
+              onChange={(e) => setApprovalProjectFilter(e.target.value || null)}
+              className="bg-zinc-800 border border-zinc-700 text-zinc-300 text-[11px] rounded-lg px-2 py-1.5 outline-none focus:border-zinc-500 transition-colors"
+            >
+              <option value="">All projects</option>
+              {approvalProjects.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
           )}
           <button
             onClick={handleCleanup}
@@ -1164,7 +1184,7 @@ export default function KanbanPage() {
                     <TaskCard
                       key={task.id}
                       task={task}
-                      pendingApprovals={approvalCards.filter((c) => c.task_id === task.id)}
+                      pendingApprovals={filteredApprovalCards.filter((c) => c.task_id === task.id)}
                       verificationRecord={verificationRecords[task.id]}
                       verificationEnabled={verificationEnabled}
                       onApprovalBadgeClick={setActiveApproval}
@@ -1224,7 +1244,7 @@ export default function KanbanPage() {
       {/* Agent Status Bar */}
       <AgentStatusBar
         agents={agents}
-        pendingCards={approvalCards}
+        pendingCards={filteredApprovalCards}
         onApprovalClick={setActiveApproval}
       />
     </div>

@@ -9,7 +9,7 @@ const redis = Redis.fromEnv();
 export async function POST(req: Request) {
   if (!isAuthorized(req)) return unauthorized();
 
-  const { tool, agent, task_title, task_id, priority, notify } = await req.json();
+  const { tool, agent, task_title, task_id, priority, notify, project } = await req.json();
 
   const id = nanoid();
   const card = {
@@ -20,6 +20,7 @@ export async function POST(req: Request) {
     task_id: task_id ?? null,
     priority: priority ?? "medium",
     status: "pending",
+    project: project ?? "unknown",
     created_at: new Date().toISOString(),
   };
 
