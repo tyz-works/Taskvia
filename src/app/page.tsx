@@ -510,6 +510,7 @@ function MissionSelector({
   selected: string | null;
   onChange: (slug: string | null) => void;
 }) {
+  const activeMissions = missions.filter((m) => m.status !== "done");
   return (
     <select
       value={selected ?? ""}
@@ -517,7 +518,7 @@ function MissionSelector({
       className="bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs rounded-lg px-2.5 py-1.5 outline-none focus:border-zinc-500 transition-colors max-w-[200px] truncate"
     >
       <option value="">All missions</option>
-      {missions.map((m) => (
+      {activeMissions.map((m) => (
         <option key={m.slug} value={m.slug}>
           {m.title}
         </option>
@@ -837,7 +838,8 @@ export default function KanbanPage() {
     fetchMissions().then((data) => {
       setMissions(data);
       if (data.length > 0 && selectedMission === null) {
-        setSelectedMission(data[0].slug);
+        const firstActive = data.find((m) => m.status !== "done") ?? data[0];
+        setSelectedMission(firstActive.slug);
       }
     });
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
@@ -869,6 +871,20 @@ export default function KanbanPage() {
 
     const tick = async () => {
       if (cancelled || document.visibilityState !== "visible") return;
+
+      // Poll mission list — update state and fall back if selected mission is gone/done
+      const updatedMissions = await fetchMissions();
+      if (!cancelled) {
+        setMissions(updatedMissions);
+        setSelectedMission((current) => {
+          if (!current) return current;
+          const found = updatedMissions.find((m) => m.slug === current);
+          if (found && found.status !== "done") return current;
+          const firstActive = updatedMissions.find((m) => m.status !== "done");
+          return firstActive ? firstActive.slug : null;
+        });
+      }
+
       const latest = await loadTasks();
       if (cancelled) return;
 
