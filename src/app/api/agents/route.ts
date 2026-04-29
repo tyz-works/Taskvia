@@ -31,6 +31,20 @@ export async function POST(req: Request) {
   return Response.json({ ok: true });
 }
 
+export async function DELETE(req: Request) {
+  if (!isAuthorized(req)) return unauthorized();
+
+  const { name } = await req.json();
+  if (!name) {
+    return Response.json({ error: "name is required" }, { status: 400 });
+  }
+
+  await redis.del(`agent:${name}`);
+  await redis.srem("agent:index", name);
+
+  return Response.json({ ok: true, deleted: name });
+}
+
 export async function GET(req: Request) {
   if (!isAuthorized(req)) return unauthorized();
 
