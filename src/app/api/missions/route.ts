@@ -25,7 +25,13 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   if (!isAuthorized(req)) return unauthorized();
 
-  const { slug, title, status } = await req.json();
+  let jsonBody: Record<string, unknown>;
+  try {
+    jsonBody = await req.json();
+  } catch {
+    return Response.json({ error: "invalid_json" }, { status: 400 });
+  }
+  const { slug, title, status } = jsonBody;
 
   if (!slug || !title) {
     return Response.json({ error: "slug and title are required" }, { status: 400 });

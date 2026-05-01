@@ -35,7 +35,12 @@ export async function PATCH(
   }
 
   const task = typeof raw === "string" ? JSON.parse(raw) : raw;
-  const body = await req.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ error: "invalid_json" }, { status: 400 });
+  }
 
   if (body.status !== undefined) task.status = body.status;
   if (body.assignee !== undefined) task.assignee = body.assignee;

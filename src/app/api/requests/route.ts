@@ -45,7 +45,12 @@ export type MissionRequest = {
 export async function POST(req: Request) {
   if (!isAuthorized(req)) return unauthorized();
 
-  const body = await req.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ error: "invalid_json" }, { status: 400 });
+  }
   const { title, body: bodyText, priority, skills, target_dir, deadline_note } =
     body as Record<string, unknown>;
 

@@ -9,7 +9,13 @@ const redis = Redis.fromEnv();
 export async function POST(req: Request) {
   if (!isAuthorized(req)) return unauthorized();
 
-  const { tool, agent, task_title, task_id, priority, notify, project } = await req.json();
+  let jsonBody: Record<string, unknown>;
+  try {
+    jsonBody = await req.json();
+  } catch {
+    return Response.json({ error: "invalid_json" }, { status: 400 });
+  }
+  const { tool, agent, task_title, task_id, priority, notify, project } = jsonBody;
 
   const id = nanoid();
   const card = {

@@ -929,7 +929,10 @@ export default function KanbanPage() {
   const fetchLogs = useCallback(async () => {
     setLogsLoading(true);
     try {
-      const res = await fetch("/api/logs");
+      const headers: Record<string, string> = {};
+      const token = process.env.NEXT_PUBLIC_TASKVIA_TOKEN;
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch("/api/logs", { headers });
       if (!res.ok) { setLogs([]); return; }
       const data = await res.json();
       setLogs(data.logs as LogEntry[]);

@@ -9,8 +9,13 @@ const AGENT_TTL = 120; // seconds
 export async function POST(req: Request) {
   if (!isAuthorized(req)) return unauthorized();
 
-  const { name, role, skills, current_task_id, current_task_title, last_seen } =
-    await req.json();
+  let jsonBody: Record<string, unknown>;
+  try {
+    jsonBody = await req.json();
+  } catch {
+    return Response.json({ error: "invalid_json" }, { status: 400 });
+  }
+  const { name, role, skills, current_task_id, current_task_title, last_seen } = jsonBody;
 
   if (!name) {
     return Response.json({ error: "name is required" }, { status: 400 });

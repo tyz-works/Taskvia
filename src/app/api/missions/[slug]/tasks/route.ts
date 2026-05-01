@@ -34,8 +34,13 @@ export async function POST(
   if (!isAuthorized(req)) return unauthorized();
 
   const { slug } = await params;
-  const { id, title, status, assignee, skills, priority, blocked_by } =
-    await req.json();
+  let jsonBody: Record<string, unknown>;
+  try {
+    jsonBody = await req.json();
+  } catch {
+    return Response.json({ error: "invalid_json" }, { status: 400 });
+  }
+  const { id, title, status, assignee, skills, priority, blocked_by } = jsonBody;
 
   if (!id || !title) {
     return Response.json({ error: "id and title are required" }, { status: 400 });
