@@ -5,6 +5,8 @@
 import { Redis } from "@upstash/redis";
 import { isAuthorized, unauthorized } from "@/lib/auth";
 import type { MissionRequest } from "../route";
+import { notFound, badRequest } from "@/lib/responses";
+import { parseRedisValue } from "@/lib/redis-parse";
 
 const redis = Redis.fromEnv();
 
@@ -18,10 +20,9 @@ export async function GET(
 
   const { id } = await params;
   const raw = await redis.get(`mission_request:${id}`);
-  if (!raw) return Response.json({ error: "not_found" }, { status: 404 });
+  if (!raw) return notFound();
 
-  const entry: MissionRequest =
-    typeof raw === "string" ? JSON.parse(raw) : raw;
+  const entry = parseRedisValue<MissionRequest>(raw)!;
 
   return Response.json(entry);
 }
@@ -34,10 +35,9 @@ export async function PATCH(
 
   const { id } = await params;
   const raw = await redis.get(`mission_request:${id}`);
-  if (!raw) return Response.json({ error: "not_found" }, { status: 404 });
+  if (!raw) return notFound();
 
-  const entry: MissionRequest =
-    typeof raw === "string" ? JSON.parse(raw) : raw;
+  const entry = parseRedisValue<MissionRequest>(raw)!;
 
   const body = await req.json();
   const { status, mission_slug, processed_at } = body as Record<
@@ -49,7 +49,7 @@ export async function PATCH(
     status !== undefined &&
     (typeof status !== "string" || !VALID_STATUSES.has(status))
   ) {
-    return Response.json({ error: "invalid status" }, { status: 400 });
+    return badRequest("invalid status");
   }
 
   if (status !== undefined) {

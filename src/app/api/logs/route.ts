@@ -12,6 +12,7 @@
 //   ?type=knowledge|improvement|work  - 種別でフィルタ (省略で全件)
 //   ?limit=N                           - 取得件数 (1-100、default 100)
 import { Redis } from "@upstash/redis";
+import { parseRedisValues } from "@/lib/redis-parse";
 
 const redis = Redis.fromEnv();
 
@@ -35,9 +36,7 @@ export async function GET(req: Request) {
   const raws = await redis.lrange<string>("agent:logs", 0, limit - 1);
   if (!raws.length) return Response.json({ logs: [] });
 
-  let logs: LogEntry[] = raws.map((r) =>
-    typeof r === "string" ? JSON.parse(r) : r
-  );
+  let logs = parseRedisValues<LogEntry>(raws as (string | object | null)[]);
 
   if (typeFilter) {
     logs = logs.filter((l) => l.type === typeFilter);

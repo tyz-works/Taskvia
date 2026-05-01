@@ -1,6 +1,7 @@
 // src/app/api/cards/[id]/verification/route.ts
 import { Redis } from "@upstash/redis";
 import { isAuthorized, unauthorized } from "@/lib/auth";
+import { parseRedisValue } from "@/lib/redis-parse";
 
 const redis = Redis.fromEnv();
 
@@ -11,12 +12,12 @@ export async function GET(
   if (!isAuthorized(req)) return unauthorized();
 
   const { id } = await params;
-  const raw = await redis.get(`verification:${id}`);
+  const raw = await redis.get<string | object>(`verification:${id}`);
 
   if (raw === null) {
     return Response.json({ verification: null });
   }
 
-  const verification = typeof raw === "string" ? JSON.parse(raw) : raw;
+  const verification = parseRedisValue(raw);
   return Response.json({ verification });
 }

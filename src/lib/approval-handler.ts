@@ -1,6 +1,8 @@
 import { Redis } from "@upstash/redis";
 import { after } from "next/server";
 import { publishResultNotification, publishErrorNotification } from "@/lib/ntfy";
+import { notFound, conflict } from "@/lib/responses";
+import { parseRedisValue } from "@/lib/redis-parse";
 
 const redis = Redis.fromEnv();
 
@@ -11,13 +13,13 @@ export async function handleTokenDecision(
   const raw = await redis.get(`approval_token:${token}`);
   if (!raw) {
     after(() => publishErrorNotification("expired"));
-    return Response.json({ error: "invalid_or_expired_token" }, { status: 404 });
+    return notFound("invalid_or_expired_token");
   }
 
-  const entry = typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>);
+  const entry = parseRedisValue<Record<string, unknown>>(raw)!;
   if (entry.consumed_at) {
     after(() => publishErrorNotification("already_used"));
-    return Response.json({ error: "token_already_used" }, { status: 409 });
+    return conflict("token_already_used");
   }
 
   entry.decision = decision;
@@ -29,7 +31,7 @@ export async function handleTokenDecision(
 
   const cardRaw = await redis.get(`approval:${entry.request_id}`);
   if (cardRaw) {
-    const card = typeof cardRaw === "string" ? JSON.parse(cardRaw) : (cardRaw as Record<string, unknown>);
+    const card = parseRedisValue<Record<string, unknown>>(cardRaw)!;
     tool = (card.tool as string) ?? tool;
     agent = (card.agent as string) ?? agent;
     card.status = decision;

@@ -1,6 +1,8 @@
 // src/app/api/missions/route.ts
 import { Redis } from "@upstash/redis";
 import { isAuthorized, unauthorized } from "@/lib/auth";
+import { badRequest } from "@/lib/responses";
+import { parseRedisValues } from "@/lib/redis-parse";
 
 const redis = Redis.fromEnv();
 
@@ -14,9 +16,7 @@ export async function GET(req: Request) {
   const keys = slugs.map((s) => `mission:${s}`);
   const raws = await redis.mget<(string | object | null)[]>(...keys);
 
-  const missions = raws
-    .filter((raw): raw is string | object => raw !== null)
-    .map((raw) => (typeof raw === "string" ? JSON.parse(raw) : raw));
+  const missions = parseRedisValues(raws);
 
   return Response.json({ missions });
 }
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   const { slug, title, status } = await req.json();
 
   if (!slug || !title) {
-    return Response.json({ error: "slug and title are required" }, { status: 400 });
+    return badRequest("slug and title are required");
   }
 
   // 既存エントリの有無を確認し、新規のときのみ lpush を実行（冪等化）

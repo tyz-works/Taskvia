@@ -1,6 +1,8 @@
 // src/app/api/missions/[slug]/tasks/route.ts
 import { Redis } from "@upstash/redis";
 import { isAuthorized, unauthorized } from "@/lib/auth";
+import { badRequest } from "@/lib/responses";
+import { parseRedisValues } from "@/lib/redis-parse";
 
 const redis = Redis.fromEnv();
 
@@ -19,9 +21,7 @@ export async function GET(
   const keys = ids.map((id) => `mission:${slug}:tasks:${id}`);
   const raws = await redis.mget<(string | object | null)[]>(...keys);
 
-  const tasks = raws
-    .filter((raw): raw is string | object => raw !== null)
-    .map((raw) => (typeof raw === "string" ? JSON.parse(raw) : raw));
+  const tasks = parseRedisValues(raws);
 
   return Response.json({ tasks });
 }
@@ -38,7 +38,7 @@ export async function POST(
     await req.json();
 
   if (!id || !title) {
-    return Response.json({ error: "id and title are required" }, { status: 400 });
+    return badRequest("id and title are required");
   }
 
   const task = {

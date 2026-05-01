@@ -1,6 +1,8 @@
 // src/app/api/cards/export/route.ts
 import { Redis } from "@upstash/redis";
 import { isAuthorized, unauthorized } from "@/lib/auth";
+import { badRequest } from "@/lib/responses";
+import { parseRedisValues } from "@/lib/redis-parse";
 
 const redis = Redis.fromEnv();
 
@@ -13,7 +15,7 @@ export async function GET(req: Request) {
   const status = searchParams.get("status");
 
   if (status && !VALID_STATUSES.has(status)) {
-    return Response.json({ error: "invalid status" }, { status: 400 });
+    return badRequest("invalid status");
   }
 
   const allIds = await redis.lrange<string>("approval:index", 0, -1);
@@ -24,9 +26,7 @@ export async function GET(req: Request) {
   const keys = allIds.map((id) => `approval:${id}`);
   const raws = await redis.mget<(string | object | null)[]>(...keys);
 
-  let cards = raws
-    .filter((raw): raw is string | object => raw !== null)
-    .map((raw) => (typeof raw === "string" ? JSON.parse(raw) : raw));
+  let cards = parseRedisValues(raws);
 
   if (status) {
     cards = cards.filter((c) => (c as { status: string }).status === status);

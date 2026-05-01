@@ -1,6 +1,8 @@
 // src/app/api/agents/route.ts
 import { Redis } from "@upstash/redis";
 import { isAuthorized, unauthorized } from "@/lib/auth";
+import { badRequest } from "@/lib/responses";
+import { parseRedisValues } from "@/lib/redis-parse";
 
 const redis = Redis.fromEnv();
 
@@ -13,7 +15,7 @@ export async function POST(req: Request) {
     await req.json();
 
   if (!name) {
-    return Response.json({ error: "name is required" }, { status: 400 });
+    return badRequest("name is required");
   }
 
   const entry = {
@@ -40,9 +42,7 @@ export async function GET(req: Request) {
   const keys = names.map((n) => `agent:${n}`);
   const raws = await redis.mget<(string | null)[]>(...keys);
 
-  const agents = raws
-    .filter((raw): raw is string => raw !== null)
-    .map((raw) => (typeof raw === "string" ? JSON.parse(raw) : raw));
+  const agents = parseRedisValues(raws as (string | object | null)[]);
 
   // TTL 切れで消えたエージェントを index から削除
   const expired = names.filter((_, i) => raws[i] === null);

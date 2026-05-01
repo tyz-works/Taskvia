@@ -3,6 +3,7 @@
 import { Redis } from "@upstash/redis";
 import { nanoid } from "nanoid";
 import type { MissionRequest } from "./api/requests/route";
+import { parseRedisValue, parseRedisValues } from "@/lib/redis-parse";
 
 const redis = Redis.fromEnv();
 
@@ -71,9 +72,7 @@ export async function fetchRequests(status?: string): Promise<MissionRequest[]> 
   const keys = ids.map((id) => `mission_request:${id}`);
   const raws = await redis.mget<string[]>(...keys);
 
-  let requests: MissionRequest[] = raws
-    .filter((r): r is string => r !== null)
-    .map((r) => (typeof r === "string" ? JSON.parse(r) : r));
+  let requests = parseRedisValues<MissionRequest>(raws as (string | object | null)[]);
 
   if (status) {
     requests = requests.filter((r) => r.status === status);
@@ -86,7 +85,7 @@ export async function approveCard(id: string): Promise<{ ok: boolean } | { error
   const raw = await redis.get(`approval:${id}`);
   if (!raw) return { error: "not_found" };
 
-  const card = typeof raw === "string" ? JSON.parse(raw) : raw;
+  const card = parseRedisValue<Record<string, unknown>>(raw)!;
   card.status = "approved";
   await redis.set(`approval:${id}`, JSON.stringify(card), { ex: 600 });
 
@@ -97,7 +96,7 @@ export async function denyCard(id: string): Promise<{ ok: boolean } | { error: s
   const raw = await redis.get(`approval:${id}`);
   if (!raw) return { error: "not_found" };
 
-  const card = typeof raw === "string" ? JSON.parse(raw) : raw;
+  const card = parseRedisValue<Record<string, unknown>>(raw)!;
   card.status = "denied";
   await redis.set(`approval:${id}`, JSON.stringify(card), { ex: 600 });
 
@@ -139,8 +138,8 @@ export async function bulkDeleteCards(
     idsToDelete = allIds.filter((_, i) => {
       const raw = raws[i];
       if (!raw) return false;
-      const card = typeof raw === "string" ? JSON.parse(raw) : raw;
-      return (card as { status: string }).status === filter.status;
+      const card = parseRedisValue<{ status: string }>(raw)!;
+      return card.status === filter.status;
     });
     idsToRemoveFromIndex = idsToDelete;
   }
@@ -197,9 +196,7 @@ export async function fetchMissions(): Promise<Mission[]> {
   const keys = slugs.map((s) => `mission:${s}`);
   const raws = await redis.mget<(string | object | null)[]>(...keys);
 
-  return raws
-    .filter((raw): raw is string | object => raw !== null)
-    .map((raw) => (typeof raw === "string" ? JSON.parse(raw) : raw)) as Mission[];
+  return parseRedisValues<Mission>(raws);
 }
 
 export async function fetchMissionTasks(slug: string): Promise<Task[]> {
@@ -209,9 +206,7 @@ export async function fetchMissionTasks(slug: string): Promise<Task[]> {
   const keys = ids.map((id) => `mission:${slug}:tasks:${id}`);
   const raws = await redis.mget<(string | object | null)[]>(...keys);
 
-  return raws
-    .filter((raw): raw is string | object => raw !== null)
-    .map((raw) => (typeof raw === "string" ? JSON.parse(raw) : raw)) as Task[];
+  return parseRedisValues<Task>(raws);
 }
 
 export interface ApprovalCard {
@@ -242,9 +237,7 @@ export async function fetchAgents(): Promise<AgentStatus[]> {
   const keys = names.map((n) => `agent:${n}`);
   const raws = await redis.mget<(string | object | null)[]>(...keys);
 
-  const agents = raws
-    .filter((raw): raw is string | object => raw !== null)
-    .map((raw) => (typeof raw === "string" ? JSON.parse(raw) : raw)) as AgentStatus[];
+  const agents = parseRedisValues<AgentStatus>(raws);
 
   // Remove expired entries from index
   const expired = names.filter((_, i) => raws[i] === null);
@@ -262,9 +255,7 @@ export async function fetchApprovalCards(): Promise<ApprovalCard[]> {
   const keys = ids.map((id) => `approval:${id}`);
   const raws = await redis.mget<(string | object | null)[]>(...keys);
 
-  return raws
-    .filter((raw): raw is string | object => raw !== null)
-    .map((raw) => (typeof raw === "string" ? JSON.parse(raw) : raw)) as ApprovalCard[];
+  return parseRedisValues<ApprovalCard>(raws);
 }
 
 export async function deleteMissionTask(slug: string, taskId: string): Promise<{ ok: boolean }> {
@@ -312,7 +303,7 @@ export async function fetchVerificationRecords(
   taskIds.forEach((id, i) => {
     const raw = raws[i];
     if (!raw) return;
-    result[id] = typeof raw === "string" ? JSON.parse(raw) : (raw as VerificationRecord);
+    result[id] = parseRedisValue<VerificationRecord>(raw)!;
   });
   return result;
 }
@@ -321,14 +312,12 @@ export async function fetchReworkHistory(taskId: string): Promise<ReworkCycle[]>
   const raws = await redis.lrange(`verification:history:${taskId}`, 0, 14);
   return raws
     .map((raw) => {
-      const data = typeof raw === "string" ? JSON.parse(raw) : raw;
+      const data = parseRedisValue<{ rework_count?: number; verdict: VerificationVerdict; checks?: { name: string; status: string; duration_s?: number }[]; verified_at?: string | null }>(raw)!;
       return {
-        cycle: (data as { rework_count?: number }).rework_count ?? 0,
-        verdict: (data as { verdict: VerificationVerdict }).verdict,
-        failed_checks: ((data as { checks?: { name: string; status: string; duration_s?: number }[] }).checks ?? []).filter(
-          (c) => c.status === "fail"
-        ),
-        verified_at: (data as { verified_at?: string | null }).verified_at ?? null,
+        cycle: data.rework_count ?? 0,
+        verdict: data.verdict,
+        failed_checks: (data.checks ?? []).filter((c) => c.status === "fail"),
+        verified_at: data.verified_at ?? null,
       };
     })
     .sort((a, b) => a.cycle - b.cycle);
@@ -346,7 +335,7 @@ export async function fetchVerificationQueue(
   taskIds.forEach((id, i) => {
     const raw = raws[i];
     if (!raw) { expired.push(id); return; }
-    records.push(typeof raw === "string" ? JSON.parse(raw) : (raw as VerificationRecord));
+    records.push(parseRedisValue<VerificationRecord>(raw)!);
   });
   if (expired.length) {
     await Promise.all(expired.map((id) => redis.lrem(`verification:index:${missionSlug}`, 1, id)));
@@ -376,9 +365,7 @@ export async function exportCards(
   const keys = allIds.map((id) => `approval:${id}`);
   const raws = await redis.mget<(string | object | null)[]>(...keys);
 
-  let cards = raws
-    .filter((raw): raw is string | object => raw !== null)
-    .map((raw) => (typeof raw === "string" ? JSON.parse(raw) : raw)) as ApprovalCard[];
+  let cards = parseRedisValues<ApprovalCard>(raws);
 
   if (status) {
     cards = cards.filter((c) => c.status === status);

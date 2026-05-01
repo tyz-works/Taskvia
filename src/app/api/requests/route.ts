@@ -21,6 +21,8 @@
 import { Redis } from "@upstash/redis";
 import { nanoid } from "nanoid";
 import { isAuthorized, unauthorized } from "@/lib/auth";
+import { badRequest } from "@/lib/responses";
+import { parseRedisValues } from "@/lib/redis-parse";
 
 const redis = Redis.fromEnv();
 
@@ -51,10 +53,10 @@ export async function POST(req: Request) {
 
   // バリデーション
   if (!title || typeof title !== "string" || title.trim() === "") {
-    return Response.json({ error: "title is required" }, { status: 400 });
+    return badRequest("title is required");
   }
   if (!bodyText || typeof bodyText !== "string" || bodyText.trim() === "") {
-    return Response.json({ error: "body is required" }, { status: 400 });
+    return badRequest("body is required");
   }
   const resolvedPriority =
     typeof priority === "string" && VALID_PRIORITIES.has(priority)
@@ -68,10 +70,7 @@ export async function POST(req: Request) {
     typeof target_dir === "string" &&
     !target_dir.startsWith("/")
   ) {
-    return Response.json(
-      { error: "target_dir must be an absolute path" },
-      { status: 400 }
-    );
+    return badRequest("target_dir must be an absolute path");
   }
 
   const resolvedSkills: string[] = Array.isArray(skills)
@@ -130,7 +129,7 @@ export async function GET(req: Request) {
     statusFilter !== null &&
     !VALID_STATUSES.has(statusFilter)
   ) {
-    return Response.json({ error: "invalid status filter" }, { status: 400 });
+    return badRequest("invalid status filter");
   }
 
   const ids = await redis.lrange<string>("mission_requests:index", 0, limit - 1);
@@ -139,9 +138,7 @@ export async function GET(req: Request) {
   const keys = ids.map((id) => `mission_request:${id}`);
   const raws = await redis.mget<string[]>(...keys);
 
-  let requests: MissionRequest[] = raws
-    .filter((r): r is string => r !== null)
-    .map((r) => (typeof r === "string" ? JSON.parse(r) : r));
+  let requests = parseRedisValues<MissionRequest>(raws as (string | object | null)[]);
 
   if (statusFilter) {
     requests = requests.filter((r) => r.status === statusFilter);

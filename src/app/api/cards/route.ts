@@ -1,5 +1,6 @@
 // src/app/api/cards/route.ts
 import { Redis } from "@upstash/redis";
+import { parseRedisValues } from "@/lib/redis-parse";
 
 const redis = Redis.fromEnv();
 
@@ -56,9 +57,7 @@ export async function GET() {
 
   if (!raws || raws.length === 0) return Response.json({ cards: [] });
 
-  const cards = (raws as (string | object | null)[])
-    .filter((raw): raw is string | object => raw !== null)
-    .map((raw) => (typeof raw === "string" ? JSON.parse(raw) : raw));
+  const cards = parseRedisValues(raws as (string | object | null)[]);
 
   return Response.json({ cards });
 }

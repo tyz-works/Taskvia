@@ -1,6 +1,7 @@
 // src/app/api/verification/route.ts
 import { Redis } from "@upstash/redis";
 import { isAuthorized, unauthorized } from "@/lib/auth";
+import { badRequest } from "@/lib/responses";
 import type { VerificationPayload } from "@/lib/verification";
 import { VERIFICATION_TTL } from "@/lib/verification";
 
@@ -13,13 +14,13 @@ export async function POST(req: Request) {
   try {
     body = await req.json();
   } catch {
-    return Response.json({ error: "invalid_json" }, { status: 400 });
+    return badRequest("invalid_json");
   }
 
   const { task_id, mission_slug, mode, verdict, checks, rework_count, verified_at, verifier } = body;
 
   if (!task_id || !verdict || !checks) {
-    return Response.json({ error: "missing_required_fields" }, { status: 400 });
+    return badRequest("missing_required_fields");
   }
 
   const record = {

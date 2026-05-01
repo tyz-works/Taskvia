@@ -1,6 +1,8 @@
 // src/app/api/verification-queue/route.ts
 import { Redis } from "@upstash/redis";
 import { isAuthorized, unauthorized } from "@/lib/auth";
+import { badRequest } from "@/lib/responses";
+import { parseRedisValue } from "@/lib/redis-parse";
 
 const redis = Redis.fromEnv();
 
@@ -11,7 +13,7 @@ export async function GET(req: Request) {
   const mission = searchParams.get("mission");
 
   if (!mission) {
-    return Response.json({ error: "mission parameter required" }, { status: 400 });
+    return badRequest("mission parameter required");
   }
 
   const taskIds = await redis.lrange(`verification:index:${mission}`, 0, -1);
@@ -28,12 +30,12 @@ export async function GET(req: Request) {
   const expired: string[] = [];
 
   for (let i = 0; i < taskIds.length; i++) {
-    const raw = raws[i];
+    const raw = raws[i] as string | object | null;
     if (raw === null) {
       expired.push(taskIds[i]);
       continue;
     }
-    const data = typeof raw === "string" ? JSON.parse(raw) : raw;
+    const data = parseRedisValue<Record<string, unknown>>(raw)!;
     queue.push({
       task_id: data.task_id,
       mission_slug: data.mission_slug ?? null,

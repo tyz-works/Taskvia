@@ -1,6 +1,8 @@
 // src/app/api/cards/bulk-delete/route.ts
 import { Redis } from "@upstash/redis";
 import { isAuthorized, unauthorized } from "@/lib/auth";
+import { badRequest } from "@/lib/responses";
+import { parseRedisValue } from "@/lib/redis-parse";
 
 const redis = Redis.fromEnv();
 
@@ -13,7 +15,7 @@ export async function POST(req: Request) {
   const { ids, status } = body as { ids?: string[]; status?: string };
 
   if (!ids && !status) {
-    return Response.json({ error: "ids or status required" }, { status: 400 });
+    return badRequest("ids or status required");
   }
 
   let targetIds: string[];
@@ -25,7 +27,7 @@ export async function POST(req: Request) {
 
   if (ids) {
     if (!Array.isArray(ids) || ids.some((id) => typeof id !== "string")) {
-      return Response.json({ error: "ids must be an array of strings" }, { status: 400 });
+      return badRequest("ids must be an array of strings");
     }
     const keys = ids.map((id) => `approval:${id}`);
     const raws = await redis.mget<(string | object | null)[]>(...keys);
@@ -33,7 +35,7 @@ export async function POST(req: Request) {
     idsToDelete = ids.filter((_, i) => raws[i] !== null);
   } else {
     if (!VALID_STATUSES.has(status!)) {
-      return Response.json({ error: "invalid status" }, { status: 400 });
+      return badRequest("invalid status");
     }
     const allIds = await redis.lrange<string>("approval:index", 0, -1);
     if (!allIds.length) return Response.json({ deleted: 0 });
@@ -44,7 +46,7 @@ export async function POST(req: Request) {
     idsToDelete = allIds.filter((_, i) => {
       const raw = raws[i];
       if (!raw) return false;
-      const card = typeof raw === "string" ? JSON.parse(raw) : raw;
+      const card = parseRedisValue<{ status: string }>(raw)!;
       return (card as { status: string }).status === status;
     });
     idsToRemoveFromIndex = idsToDelete;

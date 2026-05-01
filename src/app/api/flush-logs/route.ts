@@ -1,6 +1,8 @@
 // src/app/api/flush-logs/route.ts
 import { Redis } from "@upstash/redis";
 import { isAuthorized, unauthorized } from "@/lib/auth";
+import { serviceUnavailable, badGateway } from "@/lib/responses";
+import { parseRedisValues } from "@/lib/redis-parse";
 
 const redis = Redis.fromEnv();
 
@@ -11,14 +13,13 @@ const redis = Redis.fromEnv();
 async function flushLogs() {
   const githubToken = process.env.GITHUB_TOKEN;
   if (!githubToken) {
-    return Response.json({ error: "GITHUB_TOKEN not configured" }, { status: 503 });
+    return serviceUnavailable("GITHUB_TOKEN not configured");
   }
 
   const raws = await redis.lrange<string>("agent:logs", 0, -1);
   if (!raws.length) return Response.json({ ok: true, pushed: 0 });
 
-  const entries = raws
-    .map((r) => (typeof r === "string" ? JSON.parse(r) : r))
+  const entries = parseRedisValues<{ type: string; task_id?: string; task_title: string; agent: string; timestamp: string; content: string }>(raws as (string | object | null)[])
     .filter((e) => e.type === "knowledge" || e.type === "improvement");
 
   if (!entries.length) {
@@ -79,7 +80,7 @@ async function flushLogs() {
 
   if (!pushRes.ok) {
     const err = await pushRes.text();
-    return Response.json({ error: "GitHub push failed", detail: err }, { status: 502 });
+    return badGateway("GitHub push failed", err);
   }
 
   // push 成功後に削除
@@ -107,15 +108,12 @@ export async function POST(req: Request) {
 export async function GET(req: Request) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
-    return Response.json(
-      { error: "CRON_SECRET not configured" },
-      { status: 503 }
-    );
+    return serviceUnavailable("CRON_SECRET not configured");
   }
 
   const authHeader = req.headers.get("authorization");
   if (authHeader !== `Bearer ${cronSecret}`) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
+    return unauthorized();
   }
 
   return flushLogs();

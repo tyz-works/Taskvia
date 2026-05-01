@@ -1,6 +1,8 @@
 // src/app/api/missions/[slug]/tasks/[id]/route.ts
 import { Redis } from "@upstash/redis";
 import { isAuthorized, unauthorized } from "@/lib/auth";
+import { notFound } from "@/lib/responses";
+import { parseRedisValue } from "@/lib/redis-parse";
 
 const redis = Redis.fromEnv();
 
@@ -30,11 +32,9 @@ export async function PATCH(
   const { slug, id } = await params;
   const raw = await redis.get<string | object>(`mission:${slug}:tasks:${id}`);
 
-  if (!raw) {
-    return Response.json({ error: "Task not found" }, { status: 404 });
-  }
+  if (!raw) return notFound("Task not found");
 
-  const task = typeof raw === "string" ? JSON.parse(raw) : raw;
+  const task = parseRedisValue<Record<string, unknown>>(raw)!;
   const body = await req.json();
 
   if (body.status !== undefined) task.status = body.status;
