@@ -25,19 +25,16 @@ import {
   type ReworkCycle,
 } from "./actions";
 import type { MissionRequest } from "./api/requests/route";
+import type { LogEntry } from "./actions";
+import {
+  VERIFICATION_BADGE,
+  verificationIcon,
+  type VerificationBadgeStatus,
+} from "@/lib/verification-ui";
 
 // Smart Polling intervals (ms)
 const POLL_ACTIVE_MS = 5000;
 const POLL_IDLE_MS = 20000;
-
-interface LogEntry {
-  type: "knowledge" | "improvement" | "work";
-  content: string;
-  task_title: string;
-  task_id: string | null;
-  agent: string;
-  timestamp: string;
-}
 
 type Tab = "board" | "logs";
 
@@ -46,33 +43,6 @@ const PRIORITY_BADGE: Record<string, string> = {
   medium: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
   low: "bg-zinc-700 text-zinc-400 border-zinc-600",
 };
-
-// ─── Verification badge (W-1: exhaustive check) ────────────────────────────
-
-type VerificationBadgeStatus = "pending" | "verifying" | "verified" | "failed" | "rework";
-
-const VERIFICATION_BADGE: Record<VerificationBadgeStatus, string> = {
-  pending:   "bg-zinc-700/20 text-zinc-500 border-zinc-600",
-  verifying: "bg-sky-500/20 text-sky-400 border-sky-500/30",
-  verified:  "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-  failed:    "bg-red-500/20 text-red-400 border-red-500/30",
-  rework:    "bg-orange-500/20 text-orange-400 border-orange-500/30",
-};
-
-// W-1: exhaustive switch — TS errors if VerificationBadgeStatus grows without this update
-function verificationIcon(s: VerificationBadgeStatus): string {
-  switch (s) {
-    case "pending":   return "○";
-    case "verifying": return "⟳";
-    case "verified":  return "✓";
-    case "failed":    return "✗";
-    case "rework":    return "↩";
-    default: {
-      const _exhaustive: never = s;
-      throw new Error("unhandled verification status: " + _exhaustive);
-    }
-  }
-}
 
 function toVerificationStatus(r: VerificationRecord | undefined): VerificationBadgeStatus {
   if (!r) return "pending";

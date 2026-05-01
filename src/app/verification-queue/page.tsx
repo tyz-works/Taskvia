@@ -4,18 +4,11 @@ import {
   fetchVerificationQueue,
   type VerificationRecord,
 } from "../actions";
-
-// ─── Verification badge (mirrors page.tsx inline pattern) ──────────────────
-
-type VerificationBadgeStatus = "pending" | "verifying" | "verified" | "failed" | "rework";
-
-const VERIFICATION_BADGE: Record<VerificationBadgeStatus, string> = {
-  pending:   "bg-zinc-700/20 text-zinc-500 border-zinc-600",
-  verifying: "bg-sky-500/20 text-sky-400 border-sky-500/30",
-  verified:  "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-  failed:    "bg-red-500/20 text-red-400 border-red-500/30",
-  rework:    "bg-orange-500/20 text-orange-400 border-orange-500/30",
-};
+import {
+  VERIFICATION_BADGE,
+  verificationIcon,
+  type VerificationBadgeStatus,
+} from "@/lib/verification-ui";
 
 const VERIFICATION_LABEL: Record<VerificationBadgeStatus, string> = {
   pending:   "Pending",
@@ -24,21 +17,6 @@ const VERIFICATION_LABEL: Record<VerificationBadgeStatus, string> = {
   failed:    "Failed",
   rework:    "Rework",
 };
-
-// W-1: exhaustive switch — TS errors if VerificationBadgeStatus grows without update
-function verificationIcon(s: VerificationBadgeStatus): string {
-  switch (s) {
-    case "pending":   return "○";
-    case "verifying": return "⟳";
-    case "verified":  return "✓";
-    case "failed":    return "✗";
-    case "rework":    return "↩";
-    default: {
-      const _exhaustive: never = s;
-      throw new Error("unhandled verification status: " + _exhaustive);
-    }
-  }
-}
 
 function toStatus(r: VerificationRecord): VerificationBadgeStatus {
   if (r.verdict === "pass") return "verified";

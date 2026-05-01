@@ -6,6 +6,15 @@ import type { MissionRequest } from "./api/requests/route";
 
 const redis = Redis.fromEnv();
 
+export interface LogEntry {
+  type: "knowledge" | "improvement" | "work";
+  content: string;
+  task_title: string;
+  task_id: string | null;
+  agent: string;
+  timestamp: string;
+}
+
 export async function submitRequest(data: {
   title: string;
   body: string;

@@ -12,17 +12,9 @@
 //   ?type=knowledge|improvement|work  - 種別でフィルタ (省略で全件)
 //   ?limit=N                           - 取得件数 (1-100、default 100)
 import { Redis } from "@upstash/redis";
+import type { LogEntry } from "@/app/actions";
 
 const redis = Redis.fromEnv();
-
-type LogEntry = {
-  type: "knowledge" | "improvement" | "work";
-  content: string;
-  task_title: string;
-  task_id: string | null;
-  agent: string;
-  timestamp: string;
-};
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
