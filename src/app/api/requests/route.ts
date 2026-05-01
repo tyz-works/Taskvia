@@ -100,7 +100,8 @@ export async function POST(req: Request) {
   // ntfy 通知 (新規依頼をDirectorに知らせる)
   const topic = process.env.NTFY_TOPIC;
   if (topic) {
-    await fetch(`https://ntfy.sh/${topic}`, {
+    const ntfyBase = (process.env.NTFY_URL ?? "https://ntfy.sh").replace(/\/$/, "");
+    await fetch(`${ntfyBase}/${topic}`, {
       method: "POST",
       body: `新規依頼: ${entry.title}`,
       headers: {
