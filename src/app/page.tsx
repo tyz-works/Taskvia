@@ -2,18 +2,13 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  submitRequest,
   fetchRequests as fetchRequestsAction,
   fetchMissions,
   fetchMissionTasks,
   fetchApprovalCards,
   fetchAgents,
   fetchVerificationRecords,
-  fetchReworkHistory,
   getVerificationUIEnabled,
-  approveCard,
-  denyCard,
-  deleteCard,
   cleanupOrphanCards,
   deleteMissionTask,
   deleteMission,
@@ -22,65 +17,22 @@ import {
   type ApprovalCard,
   type AgentStatus,
   type VerificationRecord,
-  type ReworkCycle,
 } from "./actions";
 import type { MissionRequest } from "./api/requests/route";
+import { ApprovalModal } from "./components/ApprovalModal";
+import { TaskDetailDialog } from "./components/TaskDetailDialog";
+import { TaskCard } from "./components/TaskCard";
+import { MissionSelector } from "./components/MissionSelector";
+import { RequestFormModal } from "./components/RequestFormModal";
+import { Toast } from "./components/Toast";
+import { AgentStatusBar } from "./components/AgentStatusBar";
+import { LogsView, type LogEntry } from "./components/LogsView";
 
 // Smart Polling intervals (ms)
 const POLL_ACTIVE_MS = 5000;
 const POLL_IDLE_MS = 20000;
 
-interface LogEntry {
-  type: "knowledge" | "improvement" | "work";
-  content: string;
-  task_title: string;
-  task_id: string | null;
-  agent: string;
-  timestamp: string;
-}
-
 type Tab = "board" | "logs";
-
-const PRIORITY_BADGE: Record<string, string> = {
-  high: "bg-red-500/20 text-red-400 border-red-500/30",
-  medium: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-  low: "bg-zinc-700 text-zinc-400 border-zinc-600",
-};
-
-// ─── Verification badge (W-1: exhaustive check) ────────────────────────────
-
-type VerificationBadgeStatus = "pending" | "verifying" | "verified" | "failed" | "rework";
-
-const VERIFICATION_BADGE: Record<VerificationBadgeStatus, string> = {
-  pending:   "bg-zinc-700/20 text-zinc-500 border-zinc-600",
-  verifying: "bg-sky-500/20 text-sky-400 border-sky-500/30",
-  verified:  "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-  failed:    "bg-red-500/20 text-red-400 border-red-500/30",
-  rework:    "bg-orange-500/20 text-orange-400 border-orange-500/30",
-};
-
-// W-1: exhaustive switch — TS errors if VerificationBadgeStatus grows without this update
-function verificationIcon(s: VerificationBadgeStatus): string {
-  switch (s) {
-    case "pending":   return "○";
-    case "verifying": return "⟳";
-    case "verified":  return "✓";
-    case "failed":    return "✗";
-    case "rework":    return "↩";
-    default: {
-      const _exhaustive: never = s;
-      throw new Error("unhandled verification status: " + _exhaustive);
-    }
-  }
-}
-
-function toVerificationStatus(r: VerificationRecord | undefined): VerificationBadgeStatus {
-  if (!r) return "pending";
-  if (r.verdict === "pass") return "verified";
-  return r.rework_count > 0 ? "rework" : "failed";
-}
-
-// ──────────────────────────────────────────────────────────────────────────
 
 const TASK_COLUMNS: { status: Task["status"]; label: string; color: string; dot: string }[] = [
   { status: "blocked",     label: "Blocked",     color: "text-red-400",     dot: "bg-red-500" },
@@ -88,724 +40,6 @@ const TASK_COLUMNS: { status: Task["status"]; label: string; color: string; dot:
   { status: "in_progress", label: "In Progress",  color: "text-blue-400",    dot: "bg-blue-400" },
   { status: "done",        label: "Done",         color: "text-emerald-400", dot: "bg-emerald-400" },
 ];
-
-const ALL_SKILLS = [
-  "ops", "bash", "code", "python", "typescript",
-  "research", "database", "cloud", "docs", "review",
-];
-
-const LOG_TYPE_ICON: Record<LogEntry["type"], string> = {
-  knowledge: "💡",
-  improvement: "🔧",
-  work: "📝",
-};
-
-const LOG_TYPE_COLOR: Record<LogEntry["type"], string> = {
-  knowledge: "border-sky-500/30 bg-sky-500/5",
-  improvement: "border-amber-500/30 bg-amber-500/5",
-  work: "border-zinc-700 bg-zinc-800/50",
-};
-
-// ─── ApprovalModal ─────────────────────────────────────────────────────────
-
-function ApprovalModal({
-  card,
-  onClose,
-  onDone,
-  onDeleted,
-  remainingCount,
-}: {
-  card: ApprovalCard;
-  onClose: () => void;
-  onDone: (action: "approved" | "denied") => void;
-  onDeleted?: () => void;
-  remainingCount: number;
-}) {
-  const [acting, setActing] = useState(false);
-
-  const handle = async (action: "approve" | "deny") => {
-    setActing(true);
-    try {
-      if (action === "approve") {
-        await approveCard(card.id);
-      } else {
-        await denyCard(card.id);
-      }
-      onDone(action === "approve" ? "approved" : "denied");
-    } finally {
-      setActing(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!confirm("このカードを削除しますか？")) return;
-    setActing(true);
-    try {
-      await deleteCard(card.id);
-      onDeleted?.();
-    } finally {
-      setActing(false);
-    }
-  };
-
-  const timeAgo = (() => {
-    const diff = Math.floor((Date.now() - new Date(card.created_at).getTime()) / 1000);
-    if (diff < 60) return `${diff}s ago`;
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    return `${Math.floor(diff / 3600)}h ago`;
-  })();
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl overflow-hidden shadow-2xl">
-        <div className="p-5 space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-zinc-500 text-[10px] uppercase tracking-wider">承認リクエスト</p>
-              <h2 className="text-white font-bold text-2xl mt-0.5 leading-tight">{card.agent}</h2>
-              <p className="text-zinc-500 text-xs mt-0.5">{timeAgo}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleDelete}
-                disabled={acting}
-                title="カードを削除"
-                className="text-zinc-600 hover:text-red-400 text-sm leading-none transition-colors disabled:opacity-30"
-              >
-                🗑
-              </button>
-              <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 text-lg leading-none mt-0.5">✕</button>
-            </div>
-          </div>
-
-          <div className="bg-zinc-800 rounded-xl p-3 space-y-1">
-            <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Tool</div>
-            <code className="text-sm text-emerald-300 break-all">{card.tool}</code>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] px-1.5 py-0.5 rounded border font-medium bg-violet-500/20 text-violet-400 border-violet-500/30">
-              {card.project}
-            </span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${PRIORITY_BADGE[card.priority] ?? PRIORITY_BADGE.medium}`}>
-              {card.priority}
-            </span>
-            {card.task_id && (
-              <code className="text-[10px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">{card.task_id}</code>
-            )}
-          </div>
-
-          {remainingCount > 0 && (
-            <p className="text-center text-zinc-500 text-xs">あと {remainingCount} 件</p>
-          )}
-
-          <div className="grid grid-cols-2 gap-3 pt-1">
-            <button
-              onClick={() => handle("deny")}
-              disabled={acting}
-              className="py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 font-semibold hover:bg-red-500/20 active:scale-95 transition-all disabled:opacity-50"
-            >
-              Deny
-            </button>
-            <button
-              onClick={() => handle("approve")}
-              disabled={acting}
-              className="py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold hover:bg-emerald-500/20 active:scale-95 transition-all disabled:opacity-50"
-            >
-              {acting ? "…" : "Approve"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── TaskDetailDialog ──────────────────────────────────────────────────────
-
-const STATUS_LABEL: Record<Task["status"], string> = {
-  pending:     "Backlog",
-  in_progress: "In Progress",
-  done:        "Done",
-  blocked:     "Blocked",
-};
-
-const STATUS_COLOR: Record<Task["status"], string> = {
-  pending:     "bg-zinc-700 text-zinc-400 border-zinc-600",
-  in_progress: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  done:        "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-  blocked:     "bg-red-500/20 text-red-400 border-red-500/30",
-};
-
-function TaskDetailDialog({
-  task,
-  verificationRecord,
-  verificationEnabled,
-  onClose,
-}: {
-  task: Task;
-  verificationRecord?: VerificationRecord;
-  verificationEnabled: boolean;
-  onClose: () => void;
-}) {
-  const [reworkHistory, setReworkHistory] = useState<ReworkCycle[]>([]);
-
-  // ESC to close
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
-  // Fetch rework history when dialog opens (max 15 rows = cycles 0-14)
-  useEffect(() => {
-    if (!verificationEnabled) return;
-    fetchReworkHistory(task.id).then(setReworkHistory);
-  }, [task.id, verificationEnabled]);
-
-  const createdAt = new Date(task.created_at).toLocaleString("ja-JP", {
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit",
-  });
-
-  const vStatus = toVerificationStatus(verificationRecord);
-
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={task.title}
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl overflow-hidden shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="p-5 space-y-4 max-h-[85vh] overflow-y-auto">
-          {/* Header */}
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <p className="text-zinc-500 text-[10px] uppercase tracking-wider">タスク詳細</p>
-              <h2 className="text-white font-bold text-base mt-0.5 leading-snug">{task.title}</h2>
-            </div>
-            <button
-              onClick={onClose}
-              className="shrink-0 text-zinc-500 hover:text-zinc-300 text-lg leading-none mt-0.5"
-            >
-              ✕
-            </button>
-          </div>
-
-          {/* Status + Priority */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${STATUS_COLOR[task.status]}`}>
-              {STATUS_LABEL[task.status]}
-            </span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${PRIORITY_BADGE[task.priority]}`}>
-              {task.priority}
-            </span>
-            <code className="text-[10px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">{task.id}</code>
-          </div>
-
-          {/* Verification badge (feature flag guarded) */}
-          {verificationEnabled && (
-            <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-[11px] font-medium ${VERIFICATION_BADGE[vStatus]}`}>
-              <span aria-hidden="true">{verificationIcon(vStatus)}</span>
-              <span>{vStatus}</span>
-              {verificationRecord && verificationRecord.rework_count > 0 && (
-                <span className="ml-auto text-[10px] opacity-70">rework: {verificationRecord.rework_count}</span>
-              )}
-              {verificationRecord?.verifier && (
-                <span className="ml-auto text-[10px] opacity-60">by {verificationRecord.verifier}</span>
-              )}
-            </div>
-          )}
-
-          {/* Assignee */}
-          <div className="bg-zinc-800 rounded-xl p-3 space-y-1">
-            <div className="text-[10px] text-zinc-500 uppercase tracking-wider">担当</div>
-            <div className="text-sm text-zinc-200">
-              {task.assignee ?? <span className="text-zinc-600 italic">未割り当て</span>}
-            </div>
-          </div>
-
-          {/* Skills */}
-          {task.skills.length > 0 && (
-            <div className="space-y-1.5">
-              <div className="text-[10px] text-zinc-500 uppercase tracking-wider">スキル</div>
-              <div className="flex flex-wrap gap-1">
-                {task.skills.map((s) => (
-                  <span key={s} className="text-[11px] px-2 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300">
-                    {s}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Blocked by */}
-          {task.blocked_by.length > 0 && (
-            <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-3 space-y-1">
-              <div className="text-[10px] text-red-400 uppercase tracking-wider">ブロック依存</div>
-              <div className="flex flex-wrap gap-1">
-                {task.blocked_by.map((dep) => (
-                  <code key={dep} className="text-[11px] text-red-300 bg-red-500/10 px-1.5 py-0.5 rounded">
-                    {dep}
-                  </code>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Rework history (feature flag guarded, max 15 rows) */}
-          {verificationEnabled && reworkHistory.length > 0 && (
-            <div className="space-y-1.5">
-              <div className="text-[10px] text-zinc-500 uppercase tracking-wider">Rework 履歴</div>
-              <div className="space-y-1.5 max-h-[15lh] overflow-y-auto">
-                {reworkHistory.slice(0, 15).map((cycle) => (
-                  <div
-                    key={cycle.cycle}
-                    className={`rounded-lg border p-2.5 text-[11px] space-y-1 ${
-                      cycle.verdict === "pass"
-                        ? "border-emerald-500/20 bg-emerald-500/5"
-                        : "border-red-500/20 bg-red-500/5"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className={cycle.verdict === "pass" ? "text-emerald-400" : "text-red-400"}>
-                        {cycle.verdict === "pass" ? "✓" : "✗"} cycle {cycle.cycle}
-                      </span>
-                      {cycle.verified_at && (
-                        <span className="text-zinc-600 text-[10px] ml-auto">
-                          {new Date(cycle.verified_at).toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" })}
-                        </span>
-                      )}
-                    </div>
-                    {cycle.failed_checks.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {cycle.failed_checks.map((c, i) => (
-                          <code key={i} className="text-[10px] text-red-300 bg-red-500/10 px-1 py-0.5 rounded">
-                            {c.name}
-                          </code>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Created at */}
-          <div className="text-[11px] text-zinc-600 text-right">{createdAt}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── TaskCard ──────────────────────────────────────────────────────────────
-
-function TaskCard({
-  task,
-  pendingApprovals,
-  verificationRecord,
-  verificationEnabled,
-  onApprovalBadgeClick,
-  onDelete,
-  onCardClick,
-}: {
-  task: Task;
-  pendingApprovals: ApprovalCard[];
-  verificationRecord?: VerificationRecord;
-  verificationEnabled: boolean;
-  onApprovalBadgeClick: (card: ApprovalCard) => void;
-  onDelete?: () => void;
-  onCardClick: (task: Task) => void;
-}) {
-  const count = pendingApprovals.length;
-  const vStatus = toVerificationStatus(verificationRecord);
-
-  return (
-    <div
-      className="rounded-xl border border-zinc-700/60 bg-zinc-900 p-3 space-y-2 text-sm cursor-pointer hover:border-zinc-600 hover:bg-zinc-900/80 active:scale-[0.98] transition-all"
-      onClick={() => onCardClick(task)}
-    >
-      {/* Title + priority + delete */}
-      <div className="flex items-start gap-2">
-        <span className="text-zinc-100 text-xs font-medium leading-snug flex-1 line-clamp-2">{task.title}</span>
-        <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border font-medium ${PRIORITY_BADGE[task.priority]}`}>
-          {task.priority}
-        </span>
-        {onDelete && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete(); }}
-            title="タスクを削除"
-            className="shrink-0 text-zinc-700 hover:text-red-400 text-xs leading-none transition-colors"
-          >
-            ×
-          </button>
-        )}
-      </div>
-
-      {/* Approval badge */}
-      {count > 0 && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onApprovalBadgeClick(pendingApprovals[0]); }}
-          className="flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 font-medium hover:bg-amber-500/20 active:scale-95 transition-all w-full"
-        >
-          <span>⚠️</span>
-          <span>承認 {count}件</span>
-        </button>
-      )}
-
-      {/* Verification badge (feature flag guarded, skip "pending" to reduce noise) */}
-      {verificationEnabled && vStatus !== "pending" && (
-        <div
-          role="status"
-          aria-label={`verification ${vStatus}${verificationRecord && verificationRecord.rework_count > 0 ? `, rework ${verificationRecord.rework_count} of ${verificationRecord.max_rework ?? 3}` : ""}`}
-          className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-lg border font-medium ${VERIFICATION_BADGE[vStatus]}`}
-        >
-          <span aria-hidden="true">{verificationIcon(vStatus)}</span>
-          <span>{vStatus}</span>
-          {verificationRecord && verificationRecord.rework_count > 0 && (
-            <span className="ml-auto opacity-70">rework: {verificationRecord.rework_count}/{verificationRecord.max_rework ?? 3}</span>
-          )}
-        </div>
-      )}
-
-      {/* Skills */}
-      {task.skills.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {task.skills.map((s) => (
-            <span key={s} className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-400">
-              {s}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Footer: id + assignee */}
-      <div className="flex items-center justify-between text-[11px] text-zinc-600">
-        <code>{task.id}</code>
-        {task.assignee ? (
-          <span className="text-zinc-400 bg-zinc-800 px-1.5 py-0.5 rounded">{task.assignee}</span>
-        ) : (
-          <span className="text-zinc-700 italic">unassigned</span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── MissionSelector ───────────────────────────────────────────────────────
-
-function MissionSelector({
-  missions,
-  selected,
-  onChange,
-}: {
-  missions: Mission[];
-  selected: string | null;
-  onChange: (slug: string | null) => void;
-}) {
-  const activeMissions = missions.filter((m) => m.status !== "done");
-  return (
-    <select
-      value={selected ?? ""}
-      onChange={(e) => onChange(e.target.value || null)}
-      className="bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs rounded-lg px-2.5 py-1.5 outline-none focus:border-zinc-500 transition-colors max-w-[200px] truncate"
-    >
-      <option value="">All missions</option>
-      {activeMissions.map((m) => (
-        <option key={m.slug} value={m.slug}>
-          {m.title}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-// ─── RequestFormModal ──────────────────────────────────────────────────────
-
-function RequestFormModal({
-  onClose,
-  onSubmitted,
-}: {
-  onClose: () => void;
-  onSubmitted: (id: string) => void;
-}) {
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [priority, setPriority] = useState<"high" | "medium" | "low">("medium");
-  const [skills, setSkills] = useState<string[]>([]);
-  const [targetDir, setTargetDir] = useState("");
-  const [deadlineNote, setDeadlineNote] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const toggleSkill = (skill: string) =>
-    setSkills((prev) => prev.includes(skill) ? prev.filter((s) => s !== skill) : [...prev, skill]);
-
-  const handleSubmit = async () => {
-    if (!title.trim()) { setError("タイトルを入力してください"); return; }
-    if (!body.trim()) { setError("依頼内容を入力してください"); return; }
-    setSubmitting(true);
-    setError(null);
-    try {
-      const result = await submitRequest({
-        title: title.trim(), body: body.trim(), priority,
-        skills, target_dir: targetDir.trim(), deadline_note: deadlineNote.trim(),
-      });
-      if ("error" in result) { setError(result.error); return; }
-      onSubmitted(result.id);
-    } catch {
-      setError("ネットワークエラーが発生しました");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl overflow-hidden shadow-2xl">
-        <div className="p-5 space-y-4 max-h-[85vh] overflow-y-auto">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-white font-semibold text-base">Director に依頼</h2>
-            <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 text-lg leading-none">✕</button>
-          </div>
-
-          <div className="bg-zinc-800 rounded-lg px-3 py-2">
-            <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">タイトル <span className="text-red-400">*</span></div>
-            <input value={title} onChange={(e) => setTitle(e.target.value)}
-              placeholder="例: ログビューアにフィルタ機能を追加"
-              className="w-full bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-600" />
-          </div>
-
-          <div className="bg-zinc-800 rounded-lg px-3 py-2">
-            <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">依頼内容 <span className="text-red-400">*</span></div>
-            <textarea value={body} onChange={(e) => setBody(e.target.value)}
-              placeholder="詳細な依頼内容を記載してください" rows={4}
-              className="w-full bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-600 resize-none" />
-          </div>
-
-          <div>
-            <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5">優先度</div>
-            <div className="flex gap-2">
-              {(["high", "medium", "low"] as const).map((p) => (
-                <button key={p} onClick={() => setPriority(p)}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${priority === p ? PRIORITY_BADGE[p] : "bg-zinc-800 text-zinc-500 border-zinc-700 hover:border-zinc-500"}`}>
-                  {p}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5">スキル</div>
-            <div className="flex flex-wrap gap-1.5">
-              {ALL_SKILLS.map((skill) => (
-                <button key={skill} onClick={() => toggleSkill(skill)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all ${skills.includes(skill) ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" : "bg-zinc-800 text-zinc-500 border-zinc-700 hover:border-zinc-500"}`}>
-                  {skill}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-zinc-800 rounded-lg px-3 py-2">
-            <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">target_dir（任意）</div>
-            <input value={targetDir} onChange={(e) => setTargetDir(e.target.value)}
-              placeholder="/Users/tyz/workspace/..."
-              className="w-full bg-transparent text-sm text-zinc-400 outline-none placeholder:text-zinc-600 font-mono" />
-          </div>
-
-          <div className="bg-zinc-800 rounded-lg px-3 py-2">
-            <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5">締切メモ（任意）</div>
-            <input value={deadlineNote} onChange={(e) => setDeadlineNote(e.target.value)}
-              placeholder="例: 今週中に"
-              className="w-full bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-600" />
-          </div>
-
-          {error && (
-            <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-sm text-red-400">{error}</div>
-          )}
-
-          <div className="grid grid-cols-2 gap-3">
-            <button onClick={onClose}
-              className="py-3 rounded-xl bg-zinc-700/50 border border-zinc-600 text-zinc-400 font-semibold hover:bg-zinc-700 active:scale-95 transition-all">
-              キャンセル
-            </button>
-            <button onClick={handleSubmit} disabled={submitting}
-              className="py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-semibold hover:bg-emerald-500/20 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-              {submitting ? "送信中..." : "依頼を送信"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Toast ─────────────────────────────────────────────────────────────────
-
-function Toast({ message, onDone }: { message: string; onDone: () => void }) {
-  useEffect(() => {
-    const t = setTimeout(onDone, 3000);
-    return () => clearTimeout(t);
-  }, [onDone]);
-
-  return (
-    <div className="fixed bottom-14 left-1/2 -translate-x-1/2 z-50 bg-zinc-800 border border-zinc-600 text-zinc-100 text-sm px-4 py-2.5 rounded-xl shadow-2xl">
-      {message}
-    </div>
-  );
-}
-
-// ─── AgentStatusBar ────────────────────────────────────────────────────────
-
-const STALE_THRESHOLD_S = 120;
-
-function elapsedLabel(lastSeen: string): string {
-  const diff = Math.floor((Date.now() - new Date(lastSeen).getTime()) / 1000);
-  if (diff < 60) return `${diff}s`;
-  return `${Math.floor(diff / 60)}m`;
-}
-
-function AgentStatusBar({
-  agents,
-  pendingCards,
-  onApprovalClick,
-}: {
-  agents: AgentStatus[];
-  pendingCards: ApprovalCard[];
-  onApprovalClick: (card: ApprovalCard) => void;
-}) {
-  if (agents.length === 0) return null;
-
-  // 後方互換: Redis に "orchestrator" が残っている場合も director として扱う
-  const isDirector = (a: AgentStatus) => a.role === "director" || a.role === "orchestrator";
-  const directors = agents.filter(isDirector);
-  const workers = agents.filter((a) => !isDirector(a));
-
-  const renderAgent = (agent: AgentStatus) => {
-    const elapsed = Math.floor(
-      (Date.now() - new Date(agent.last_seen).getTime()) / 1000
-    );
-    const stale = elapsed > STALE_THRESHOLD_S;
-    const agentPending = pendingCards.filter((c) => c.agent === agent.name);
-
-    return (
-      <div
-        key={agent.name}
-        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border shrink-0 transition-opacity ${
-          stale
-            ? "border-zinc-800 bg-zinc-900/50 opacity-40"
-            : "border-zinc-700 bg-zinc-900"
-        }`}
-      >
-        <div
-          className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-            stale ? "bg-zinc-600" : isDirector(agent) ? "bg-violet-400" : "bg-emerald-400"
-          }`}
-        />
-        <span className={`text-[11px] font-semibold ${stale ? "text-zinc-600" : "text-zinc-300"}`}>
-          {agent.name}
-        </span>
-        {isDirector(agent) && (
-          <span className="text-[9px] px-1 py-px rounded bg-violet-500/20 text-violet-400 border border-violet-500/30 font-medium leading-none">
-            dir
-          </span>
-        )}
-        {agent.current_task_title && (
-          <span className={`text-[10px] max-w-[120px] truncate ${stale ? "text-zinc-700" : "text-zinc-500"}`}>
-            {agent.current_task_title}
-          </span>
-        )}
-        {agentPending.length > 0 && (
-          <button
-            onClick={() => onApprovalClick(agentPending[0])}
-            title={`承認待ち: ${agentPending[0].tool}`}
-            className="flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-amber-400 text-[9px] font-bold hover:bg-amber-500/30 active:scale-95 transition-all animate-pulse"
-          >
-            ⏳ {agentPending.length}
-          </button>
-        )}
-        <span className={`text-[10px] ml-1 ${stale ? "text-zinc-700" : "text-zinc-600"}`}>
-          {elapsedLabel(agent.last_seen)}
-        </span>
-      </div>
-    );
-  };
-
-  return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur-sm px-3 py-3">
-      <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
-        <span className="text-[10px] text-zinc-600 uppercase tracking-wider shrink-0 pr-1 border-r border-zinc-800">
-          Agents
-        </span>
-        {directors.map(renderAgent)}
-        {directors.length > 0 && workers.length > 0 && (
-          <div className="w-px h-4 bg-zinc-800 shrink-0" />
-        )}
-        {workers.map(renderAgent)}
-      </div>
-    </div>
-  );
-}
-
-// ─── LogsView ──────────────────────────────────────────────────────────────
-
-function LogsView({ logs, loading }: { logs: LogEntry[]; loading: boolean }) {
-  if (loading) return <div className="text-zinc-600 text-xs text-center py-12">Loading logs…</div>;
-  if (logs.length === 0) return (
-    <div className="text-zinc-700 text-xs text-center py-12">
-      No logs yet. Agents post knowledge and improvements via POST /api/log.
-    </div>
-  );
-
-  const groups = new Map<string, LogEntry[]>();
-  for (const log of logs) {
-    const key = `${log.task_id ?? "no-task"}|${log.task_title}`;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push(log);
-  }
-
-  return (
-    <div className="p-3 space-y-4">
-      {Array.from(groups.entries()).map(([key, group]) => {
-        const { task_title, task_id } = group[0];
-        return (
-          <section key={key} className="space-y-2">
-            <header className="flex items-baseline gap-2 border-b border-zinc-800 pb-1">
-              <h3 className="text-[13px] font-semibold text-zinc-200 truncate">{task_title}</h3>
-              {task_id && <code className="text-[10px] text-zinc-500">{task_id}</code>}
-              <span className="text-[10px] text-zinc-600 ml-auto">{group.length}</span>
-            </header>
-            <div className="space-y-1.5">
-              {group.map((log, i) => {
-                const time = new Date(log.timestamp).toTimeString().slice(0, 5);
-                return (
-                  <div key={i} className={`rounded-lg border p-2.5 text-xs space-y-1 ${LOG_TYPE_COLOR[log.type]}`}>
-                    <div className="flex items-center gap-2 text-[11px] text-zinc-500">
-                      <span className="text-sm leading-none">{LOG_TYPE_ICON[log.type]}</span>
-                      <span className="text-zinc-400">{log.agent}</span>
-                      <span className="text-zinc-600 ml-auto">{time}</span>
-                    </div>
-                    <p className="text-zinc-200 whitespace-pre-wrap break-words">{log.content}</p>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── KanbanPage ────────────────────────────────────────────────────────────
 
 export default function KanbanPage() {
   const [missions, setMissions] = useState<Mission[]>([]);
@@ -824,16 +58,13 @@ export default function KanbanPage() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [agents, setAgents] = useState<AgentStatus[]>([]);
 
-  // Verification UI feature flag (CREWVIA_VERIFICATION_UI env, server-side read)
   const [verificationEnabled, setVerificationEnabled] = useState(true);
   const [verificationRecords, setVerificationRecords] = useState<Record<string, VerificationRecord>>({});
 
-  // Read feature flag once on mount
   useEffect(() => {
     getVerificationUIEnabled().then(setVerificationEnabled);
   }, []);
 
-  // Fetch missions once on mount
   useEffect(() => {
     fetchMissions().then((data) => {
       setMissions(data);
@@ -844,7 +75,6 @@ export default function KanbanPage() {
     });
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch tasks whenever selectedMission changes
   const loadTasks = useCallback(async (): Promise<Task[]> => {
     if (!selectedMission) {
       const allMissions = await fetchMissions();
@@ -860,7 +90,6 @@ export default function KanbanPage() {
     return data;
   }, [selectedMission]);
 
-  // Smart Polling for board tab
   useEffect(() => {
     if (tab !== "board") return;
     if (typeof document === "undefined") return;
@@ -872,7 +101,6 @@ export default function KanbanPage() {
     const tick = async () => {
       if (cancelled || document.visibilityState !== "visible") return;
 
-      // Poll mission list — update state and fall back if selected mission is gone/done
       const updatedMissions = await fetchMissions();
       if (!cancelled) {
         setMissions(updatedMissions);
@@ -888,15 +116,12 @@ export default function KanbanPage() {
       const latest = await loadTasks();
       if (cancelled) return;
 
-      // Fetch verification records for all visible tasks (W-2: verifying detection)
       let vRecords: Record<string, VerificationRecord> = {};
       if (verificationEnabled && latest.length > 0) {
         vRecords = await fetchVerificationRecords(latest.map((t) => t.id));
         if (!cancelled) setVerificationRecords(vRecords);
       }
 
-      // W-2: hasActive includes "verifying" — in_progress tasks without a verification
-      // record yet may currently be undergoing verification
       const verificationActive = latest.some(
         (t) => t.status === "in_progress" && !vRecords[t.id]
       );
@@ -925,7 +150,6 @@ export default function KanbanPage() {
     };
   }, [loadTasks, tab, verificationEnabled]);
 
-  // Logs: fetch once on tab switch
   const fetchLogs = useCallback(async () => {
     setLogsLoading(true);
     try {
@@ -942,7 +166,6 @@ export default function KanbanPage() {
     if (tab === "logs") fetchLogs();
   }, [tab, fetchLogs]);
 
-  // Approval cards: medium-frequency polling + auto-open modal + browser notification
   const knownApprovalIds = useRef<Set<string>>(new Set());
   const initialApprovalLoad = useRef(true);
 
@@ -1000,7 +223,6 @@ export default function KanbanPage() {
     fetchApprovals();
   }, [approvalCards, fetchApprovals]);
 
-  // Agents: 5-second polling
   const fetchAgentsData = useCallback(async () => {
     const data = await fetchAgents();
     setAgents(data);
@@ -1012,7 +234,6 @@ export default function KanbanPage() {
     return () => clearInterval(t);
   }, [fetchAgentsData]);
 
-  // Requests: low-frequency polling
   const fetchReqs = useCallback(async () => {
     const data = await fetchRequestsAction();
     setRequests(data);
@@ -1075,7 +296,6 @@ export default function KanbanPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white pb-20">
-      {/* Header */}
       <header className="border-b border-zinc-800 px-4 py-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <div className="shrink-0">
@@ -1153,7 +373,6 @@ export default function KanbanPage() {
         </div>
       </header>
 
-      {/* Tab switcher (Board / Logs / Verification Queue link) */}
       <nav className="border-b border-zinc-800 px-4 flex gap-1">
         {(["board", "logs"] as const).map((key) => (
           <button
@@ -1168,7 +387,6 @@ export default function KanbanPage() {
             {key === "board" ? "Board" : "Logs"}
           </button>
         ))}
-        {/* W-3: verification queue tab link (feature flag guarded) */}
         {verificationEnabled && (
           <a
             href="/verification-queue"
@@ -1179,7 +397,6 @@ export default function KanbanPage() {
         )}
       </nav>
 
-      {/* Board */}
       {tab === "board" && (
         <div className="grid grid-cols-4 gap-px bg-zinc-800 min-h-[calc(100vh-97px)]">
           {TASK_COLUMNS.map((col) => {
@@ -1215,14 +432,12 @@ export default function KanbanPage() {
         </div>
       )}
 
-      {/* Logs */}
       {tab === "logs" && (
         <div className="min-h-[calc(100vh-97px)] bg-zinc-950">
           <LogsView logs={logs} loading={logsLoading} />
         </div>
       )}
 
-      {/* Task Detail Dialog */}
       {selectedTask && (
         <TaskDetailDialog
           task={selectedTask}
@@ -1232,7 +447,6 @@ export default function KanbanPage() {
         />
       )}
 
-      {/* Approval Modal */}
       {activeApproval && (
         <ApprovalModal
           key={activeApproval.id}
@@ -1244,7 +458,6 @@ export default function KanbanPage() {
         />
       )}
 
-      {/* Request Form Modal */}
       {showRequestForm && (
         <RequestFormModal
           onClose={() => setShowRequestForm(false)}
@@ -1252,12 +465,8 @@ export default function KanbanPage() {
         />
       )}
 
-      {/* Toast */}
       {toast && <Toast message={toast} onDone={() => setToast(null)} />}
 
-      {/* Approval Banner removed — modal auto-opens on new cards */}
-
-      {/* Agent Status Bar */}
       <AgentStatusBar
         agents={agents}
         pendingCards={filteredApprovalCards}
