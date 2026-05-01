@@ -25,6 +25,7 @@ import {
   type ReworkCycle,
 } from "./actions";
 import type { MissionRequest } from "./api/requests/route";
+import { usePolling } from "@/lib/usePolling";
 
 // Smart Polling intervals (ms)
 const POLL_ACTIVE_MS = 5000;
@@ -983,11 +984,7 @@ export default function KanbanPage() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchApprovals();
-    const t = setInterval(fetchApprovals, POLL_ACTIVE_MS);
-    return () => clearInterval(t);
-  }, [fetchApprovals]);
+  usePolling(fetchApprovals, POLL_ACTIVE_MS);
 
   const handleApprovalDone = useCallback((action: "approved" | "denied") => {
     setActiveApproval((current) => {
@@ -1006,11 +1003,7 @@ export default function KanbanPage() {
     setAgents(data);
   }, []);
 
-  useEffect(() => {
-    fetchAgentsData();
-    const t = setInterval(fetchAgentsData, 5000);
-    return () => clearInterval(t);
-  }, [fetchAgentsData]);
+  usePolling(fetchAgentsData, 5000);
 
   // Requests: low-frequency polling
   const fetchReqs = useCallback(async () => {
@@ -1018,11 +1011,7 @@ export default function KanbanPage() {
     setRequests(data);
   }, []);
 
-  useEffect(() => {
-    fetchReqs();
-    const t = setInterval(fetchReqs, POLL_IDLE_MS);
-    return () => clearInterval(t);
-  }, [fetchReqs]);
+  usePolling(fetchReqs, POLL_IDLE_MS);
 
   const handleSubmitted = useCallback((id: string) => {
     setShowRequestForm(false);
