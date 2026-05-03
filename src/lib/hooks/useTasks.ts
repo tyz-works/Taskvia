@@ -59,6 +59,7 @@ export function useTasks({
 
     let timer: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
 
     const tick = async () => {

@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 export function usePolling(
   fn: () => void | Promise<void>,
   intervalMs: number,
 ) {
-  // Keep a stable ref so interval callback always calls the latest fn
-  // without needing fn in the dependency array (avoids restart on every render)
   const fnRef = useRef(fn);
-  fnRef.current = fn;
+  // Update ref after each render so the interval always calls the latest fn
+  // without restarting the interval itself.
+  useLayoutEffect(() => {
+    fnRef.current = fn;
+  });
 
   useEffect(() => {
     if (typeof document === "undefined") return;

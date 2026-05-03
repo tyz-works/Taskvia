@@ -19,7 +19,7 @@ export function useMissions(onToast: (msg: string) => void) {
         setSelectedMission(firstActive.slug);
       }
     });
-  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleDeleteMission = useCallback(async (slug: string) => {
     const mission = missions.find((m) => m.slug === slug);

@@ -4,19 +4,10 @@ import { useState, useEffect, useCallback } from "react";
 import {
   submitRequest,
   fetchRequests as fetchRequestsAction,
-  fetchMissions,
-  fetchMissionTasks,
-  fetchApprovalCards,
-  fetchAgents,
-  fetchVerificationRecords,
   fetchReworkHistory,
-  getVerificationUIEnabled,
   approveCard,
   denyCard,
   deleteCard,
-  cleanupOrphanCards,
-  deleteMissionTask,
-  deleteMission,
   type Mission,
   type Task,
   type ApprovalCard,
@@ -30,8 +21,6 @@ import { useTasks } from "@/lib/hooks/useTasks";
 import { useApprovalCards } from "@/lib/hooks/useApprovalCards";
 import { useAgentStatus } from "@/lib/hooks/useAgentStatus";
 
-// Smart Polling intervals (ms)
-const POLL_ACTIVE_MS = 5000;
 const POLL_IDLE_MS = 20000;
 
 interface LogEntry {
@@ -694,8 +683,9 @@ function AgentStatusBar({
   const workers = agents.filter((a) => !isDirector(a));
 
   const renderAgent = (agent: AgentStatus) => {
+    const now = Date.now(); // eslint-disable-line react-hooks/purity
     const elapsed = Math.floor(
-      (Date.now() - new Date(agent.last_seen).getTime()) / 1000
+      (now - new Date(agent.last_seen).getTime()) / 1000
     );
     const stale = elapsed > STALE_THRESHOLD_S;
     const agentPending = pendingCards.filter((c) => c.agent === agent.name);
