@@ -1,22 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   submitRequest,
   fetchRequests as fetchRequestsAction,
-  fetchMissions,
-  fetchMissionTasks,
-  fetchApprovalCards,
-  fetchAgents,
-  fetchVerificationRecords,
   fetchReworkHistory,
-  getVerificationUIEnabled,
   approveCard,
   denyCard,
   deleteCard,
-  cleanupOrphanCards,
-  deleteMissionTask,
-  deleteMission,
   type Mission,
   type Task,
   type ApprovalCard,
@@ -25,9 +16,11 @@ import {
   type ReworkCycle,
 } from "./actions";
 import type { MissionRequest } from "./api/requests/route";
+import { useMissions } from "@/lib/hooks/useMissions";
+import { useTasks } from "@/lib/hooks/useTasks";
+import { useApprovalCards } from "@/lib/hooks/useApprovalCards";
+import { useAgentStatus } from "@/lib/hooks/useAgentStatus";
 
-// Smart Polling intervals (ms)
-const POLL_ACTIVE_MS = 5000;
 const POLL_IDLE_MS = 20000;
 
 interface LogEntry {
@@ -690,8 +683,9 @@ function AgentStatusBar({
   const workers = agents.filter((a) => !isDirector(a));
 
   const renderAgent = (agent: AgentStatus) => {
+    const now = Date.now(); // eslint-disable-line react-hooks/purity
     const elapsed = Math.floor(
-      (Date.now() - new Date(agent.last_seen).getTime()) / 1000
+      (now - new Date(agent.last_seen).getTime()) / 1000
     );
     const stale = elapsed > STALE_THRESHOLD_S;
     const agentPending = pendingCards.filter((c) => c.agent === agent.name);
@@ -808,122 +802,35 @@ function LogsView({ logs, loading }: { logs: LogEntry[]; loading: boolean }) {
 // ─── KanbanPage ────────────────────────────────────────────────────────────
 
 export default function KanbanPage() {
-  const [missions, setMissions] = useState<Mission[]>([]);
-  const [selectedMission, setSelectedMission] = useState<string | null>(null);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showRequestForm, setShowRequestForm] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("board");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [requests, setRequests] = useState<MissionRequest[]>([]);
-  const [approvalCards, setApprovalCards] = useState<ApprovalCard[]>([]);
-  const [approvalProjectFilter, setApprovalProjectFilter] = useState<string | null>(null);
-  const [activeApproval, setActiveApproval] = useState<ApprovalCard | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [agents, setAgents] = useState<AgentStatus[]>([]);
 
-  // Verification UI feature flag (CREWVIA_VERIFICATION_UI env, server-side read)
-  const [verificationEnabled, setVerificationEnabled] = useState(true);
-  const [verificationRecords, setVerificationRecords] = useState<Record<string, VerificationRecord>>({});
+  const { missions, setMissions, selectedMission, setSelectedMission, handleDeleteMission } =
+    useMissions(setToast);
 
-  // Read feature flag once on mount
-  useEffect(() => {
-    getVerificationUIEnabled().then(setVerificationEnabled);
-  }, []);
+  const { tasks, loading, verificationEnabled, verificationRecords, handleDeleteTask } =
+    useTasks({ selectedMission, setMissions, setSelectedMission, tab, onToast: setToast });
 
-  // Fetch missions once on mount
-  useEffect(() => {
-    fetchMissions().then((data) => {
-      setMissions(data);
-      if (data.length > 0 && selectedMission === null) {
-        const firstActive = data.find((m) => m.status !== "done") ?? data[0];
-        setSelectedMission(firstActive.slug);
-      }
-    });
-  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+  const {
+    approvalCards,
+    filteredApprovalCards,
+    approvalProjects,
+    approvalProjectFilter,
+    setApprovalProjectFilter,
+    activeApproval,
+    setActiveApproval,
+    pendingApprovalCount,
+    handleApprovalDone,
+    handleApprovalDeleted,
+    handleCleanup,
+  } = useApprovalCards(setToast);
 
-  // Fetch tasks whenever selectedMission changes
-  const loadTasks = useCallback(async (): Promise<Task[]> => {
-    if (!selectedMission) {
-      const allMissions = await fetchMissions();
-      const results = await Promise.all(allMissions.map((m) => fetchMissionTasks(m.slug)));
-      const merged = results.flat();
-      setTasks(merged);
-      setLoading(false);
-      return merged;
-    }
-    const data = await fetchMissionTasks(selectedMission);
-    setTasks(data);
-    setLoading(false);
-    return data;
-  }, [selectedMission]);
-
-  // Smart Polling for board tab
-  useEffect(() => {
-    if (tab !== "board") return;
-    if (typeof document === "undefined") return;
-
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let cancelled = false;
-    setLoading(true);
-
-    const tick = async () => {
-      if (cancelled || document.visibilityState !== "visible") return;
-
-      // Poll mission list — update state and fall back if selected mission is gone/done
-      const updatedMissions = await fetchMissions();
-      if (!cancelled) {
-        setMissions(updatedMissions);
-        setSelectedMission((current) => {
-          if (!current) return current;
-          const found = updatedMissions.find((m) => m.slug === current);
-          if (found && found.status !== "done") return current;
-          const firstActive = updatedMissions.find((m) => m.status !== "done");
-          return firstActive ? firstActive.slug : null;
-        });
-      }
-
-      const latest = await loadTasks();
-      if (cancelled) return;
-
-      // Fetch verification records for all visible tasks (W-2: verifying detection)
-      let vRecords: Record<string, VerificationRecord> = {};
-      if (verificationEnabled && latest.length > 0) {
-        vRecords = await fetchVerificationRecords(latest.map((t) => t.id));
-        if (!cancelled) setVerificationRecords(vRecords);
-      }
-
-      // W-2: hasActive includes "verifying" — in_progress tasks without a verification
-      // record yet may currently be undergoing verification
-      const verificationActive = latest.some(
-        (t) => t.status === "in_progress" && !vRecords[t.id]
-      );
-      const hasActive = latest.some((t) => t.status === "in_progress") || verificationActive;
-      const delay = hasActive ? POLL_ACTIVE_MS : POLL_IDLE_MS;
-      timer = setTimeout(tick, delay);
-    };
-
-    tick();
-
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        if (timer) clearTimeout(timer);
-        tick();
-      } else if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [loadTasks, tab, verificationEnabled]);
+  const { agents } = useAgentStatus();
 
   // Logs: fetch once on tab switch
   const fetchLogs = useCallback(async () => {
@@ -941,76 +848,6 @@ export default function KanbanPage() {
   useEffect(() => {
     if (tab === "logs") fetchLogs();
   }, [tab, fetchLogs]);
-
-  // Approval cards: medium-frequency polling + auto-open modal + browser notification
-  const knownApprovalIds = useRef<Set<string>>(new Set());
-  const initialApprovalLoad = useRef(true);
-
-  useEffect(() => {
-    if (typeof Notification !== "undefined" && Notification.permission === "default") {
-      Notification.requestPermission();
-    }
-  }, []);
-
-  const fetchApprovals = useCallback(async () => {
-    const data = await fetchApprovalCards();
-    const pending = data.filter((c) => c.status === "pending");
-    setApprovalCards(pending);
-
-    if (initialApprovalLoad.current) {
-      initialApprovalLoad.current = false;
-      for (const c of pending) knownApprovalIds.current.add(c.id);
-      if (pending.length > 0) {
-        setActiveApproval(pending[0]);
-      }
-      return;
-    }
-
-    const newCards = pending.filter((c) => !knownApprovalIds.current.has(c.id));
-    for (const c of pending) knownApprovalIds.current.add(c.id);
-
-    if (newCards.length > 0) {
-      setActiveApproval((current) => current ?? newCards[0]);
-
-      if (typeof Notification !== "undefined" && Notification.permission === "granted" && document.visibilityState !== "visible") {
-        const card = newCards[0];
-        const n = new Notification(`承認要求 — ${card.agent}`, {
-          body: card.tool,
-          tag: "crewvia-approval",
-        });
-        n.onclick = () => { window.focus(); n.close(); };
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchApprovals();
-    const t = setInterval(fetchApprovals, POLL_ACTIVE_MS);
-    return () => clearInterval(t);
-  }, [fetchApprovals]);
-
-  const handleApprovalDone = useCallback((action: "approved" | "denied") => {
-    setActiveApproval((current) => {
-      const remaining = approvalCards
-        .filter((c) => c.id !== current?.id)
-        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-      return remaining.length > 0 ? remaining[0] : null;
-    });
-    setToast(action === "approved" ? "✅ 承認しました" : "❌ 拒否しました");
-    fetchApprovals();
-  }, [approvalCards, fetchApprovals]);
-
-  // Agents: 5-second polling
-  const fetchAgentsData = useCallback(async () => {
-    const data = await fetchAgents();
-    setAgents(data);
-  }, []);
-
-  useEffect(() => {
-    fetchAgentsData();
-    const t = setInterval(fetchAgentsData, 5000);
-    return () => clearInterval(t);
-  }, [fetchAgentsData]);
 
   // Requests: low-frequency polling
   const fetchReqs = useCallback(async () => {
@@ -1030,48 +867,8 @@ export default function KanbanPage() {
     fetchReqs();
   }, [fetchReqs]);
 
-  const handleApprovalDeleted = useCallback(() => {
-    setActiveApproval((current) => {
-      const remaining = approvalCards
-        .filter((c) => c.id !== current?.id)
-        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-      return remaining.length > 0 ? remaining[0] : null;
-    });
-    setToast("🗑 カードを削除しました");
-    fetchApprovals();
-  }, [fetchApprovals]);
-
-  const handleCleanup = useCallback(async () => {
-    const result = await cleanupOrphanCards();
-    setToast(result.cleaned > 0 ? `🧹 孤児カード ${result.cleaned}件を掃除しました` : "孤児カードはありませんでした");
-    fetchApprovals();
-  }, [fetchApprovals]);
-
-  const handleDeleteTask = useCallback(async (slug: string, taskId: string) => {
-    if (!confirm(`タスク "${taskId}" を削除しますか？`)) return;
-    await deleteMissionTask(slug, taskId);
-    setToast(`🗑 タスク ${taskId} を削除しました`);
-    loadTasks();
-  }, [loadTasks]);
-
-  const handleDeleteMission = useCallback(async (slug: string) => {
-    const mission = missions.find((m) => m.slug === slug);
-    const label = mission ? mission.title : slug;
-    if (!confirm(`ミッション「${label}」とその全タスクを削除しますか？\nこの操作は元に戻せません。`)) return;
-    await deleteMission(slug);
-    setToast(`🗑 ミッション「${label}」を削除しました`);
-    const updated = await fetchMissions();
-    setMissions(updated);
-    setSelectedMission(updated.length > 0 ? updated[0].slug : null);
-  }, [missions]);
-
   const inProgressCount = tasks.filter((t) => t.status === "in_progress").length;
   const pendingRequests = requests.filter((r) => r.status === "pending").length;
-  const filteredApprovalCards = approvalProjectFilter
-    ? approvalCards.filter((c) => c.project === approvalProjectFilter)
-    : approvalCards;
-  const approvalProjects = [...new Set(approvalCards.map((c) => c.project))].sort();
-  const pendingApprovalCount = filteredApprovalCards.length;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white pb-20">
