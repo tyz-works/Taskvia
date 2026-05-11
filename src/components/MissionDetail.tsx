@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import type { Mission, Task } from "@/app/actions";
 import MissionTimeline from "./MissionTimeline";
+import TaskDependencyGraph from "./TaskDependencyGraph";
 
 type DetailTab = "timeline" | "dag" | "heatmap";
 
@@ -87,9 +88,7 @@ export default function MissionDetail({
           <MissionTimeline tasks={initialTasks} />
         )}
         {tab === "dag" && (
-          <div className="text-zinc-600 text-xs text-center py-16">
-            DAG 可視化は準備中です (t004)
-          </div>
+          <TaskDependencyGraph tasks={initialTasks} />
         )}
         {tab === "heatmap" && (
           <div className="text-zinc-600 text-xs text-center py-16">
