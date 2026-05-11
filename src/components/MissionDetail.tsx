@@ -5,6 +5,8 @@ import Link from "next/link";
 import type { Mission, Task } from "@/app/actions";
 import MissionTimeline from "./MissionTimeline";
 import TaskDependencyGraph from "./TaskDependencyGraph";
+import WorkerHeatmap from "./WorkerHeatmap";
+import type { Worker } from "@/app/actions";
 
 type DetailTab = "timeline" | "dag" | "heatmap";
 
@@ -31,9 +33,11 @@ const MISSION_STATUS_COLOR: Record<string, string> = {
 export default function MissionDetail({
   mission,
   initialTasks,
+  workers,
 }: {
   mission: Mission;
   initialTasks: Task[];
+  workers: Worker[];
 }) {
   const [tab, setTab] = useState<DetailTab>("timeline");
 
@@ -91,9 +95,7 @@ export default function MissionDetail({
           <TaskDependencyGraph tasks={initialTasks} />
         )}
         {tab === "heatmap" && (
-          <div className="text-zinc-600 text-xs text-center py-16">
-            Worker ヒートマップは準備中です (t005)
-          </div>
+          <WorkerHeatmap workers={workers} tasks={initialTasks} />
         )}
       </div>
 
