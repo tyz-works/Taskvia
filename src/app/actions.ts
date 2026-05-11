@@ -188,6 +188,14 @@ export interface Task {
   priority: "high" | "medium" | "low";
   blocked_by: string[];
   created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export async function fetchMission(slug: string): Promise<Mission | null> {
+  const raw = await redis.get<string | object>(`mission:${slug}`);
+  if (!raw) return null;
+  return (typeof raw === "string" ? JSON.parse(raw) : raw) as Mission;
 }
 
 export async function fetchMissions(): Promise<Mission[]> {
@@ -233,6 +241,37 @@ export interface AgentStatus {
   current_task_id: string | null;
   current_task_title: string | null;
   last_seen: string;
+}
+
+export interface Worker {
+  name: string;
+  role?: string;
+  skills: string[];
+  task_count: number;
+  last_active: string;
+}
+
+export async function fetchWorkers(): Promise<Worker[]> {
+  const names = await redis.smembers("worker:index");
+  if (!names || names.length === 0) return [];
+
+  const keys = names.map((n) => `worker:${n}`);
+  const raws = await redis.mget<(string | object | null)[]>(...keys);
+
+  const workers: Worker[] = [];
+  const expired: string[] = [];
+
+  names.forEach((name, i) => {
+    const raw = raws[i];
+    if (!raw) { expired.push(name); return; }
+    workers.push(typeof raw === "string" ? JSON.parse(raw) : (raw as Worker));
+  });
+
+  if (expired.length > 0) {
+    await redis.srem("worker:index", ...expired);
+  }
+
+  return workers;
 }
 
 export async function fetchAgents(): Promise<AgentStatus[]> {
