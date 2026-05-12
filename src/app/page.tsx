@@ -885,6 +885,15 @@ export default function KanbanPage() {
             onChange={setSelectedMission}
           />
           {selectedMission && (
+            <a
+              href={`/missions/${selectedMission}`}
+              title="ミッション詳細ページを開く"
+              className="text-zinc-600 hover:text-zinc-300 text-xs leading-none transition-colors shrink-0 px-1.5 py-1 rounded border border-zinc-800 hover:border-zinc-600"
+            >
+              詳細
+            </a>
+          )}
+          {selectedMission && (
             <button
               onClick={() => handleDeleteMission(selectedMission)}
               title="このミッションを削除"

@@ -40,6 +40,8 @@ export async function PATCH(
   if (body.status !== undefined) task.status = body.status;
   if (body.assignee !== undefined) task.assignee = body.assignee;
   if (body.result !== undefined) task.result = body.result;
+  if (body.started_at !== undefined) task.started_at = body.started_at;
+  if (body.completed_at !== undefined) task.completed_at = body.completed_at;
   task.updated_at = new Date().toISOString();
 
   await redis.set(`mission:${slug}:tasks:${id}`, JSON.stringify(task));
