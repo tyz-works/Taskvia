@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import type { Task } from "@/app/actions";
 
 const BAR_COLOR: Record<Task["status"], string> = {
@@ -20,6 +21,9 @@ function fmt(iso: string): string {
 }
 
 export default function MissionTimeline({ tasks }: { tasks: Task[] }) {
+  const [now, setNow] = useState<number>(0);
+  useEffect(() => { setNow(Date.now()); }, []);
+
   if (tasks.length === 0) {
     return (
       <div className="text-zinc-600 text-xs text-center py-12">
@@ -28,7 +32,7 @@ export default function MissionTimeline({ tasks }: { tasks: Task[] }) {
     );
   }
 
-  const now = Date.now();
+  if (now === 0) return null;
 
   // Compute time range
   const times = tasks.flatMap((t) => {

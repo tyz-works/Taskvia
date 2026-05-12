@@ -1,12 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import Link from "next/link";
 import type { Mission, Task } from "@/app/actions";
+import { fetchMissionTasks } from "@/app/actions";
+import { usePolling } from "@/lib/usePolling";
 import MissionTimeline from "./MissionTimeline";
 import TaskDependencyGraph from "./TaskDependencyGraph";
 import WorkerHeatmap from "./WorkerHeatmap";
 import type { Worker } from "@/app/actions";
+
+const POLL_MS = 5000;
 
 type DetailTab = "timeline" | "dag" | "heatmap";
 
@@ -40,9 +44,17 @@ export default function MissionDetail({
   workers: Worker[];
 }) {
   const [tab, setTab] = useState<DetailTab>("timeline");
+  const [tasks, setTasks] = useState<Task[]>(initialTasks);
 
-  const done = initialTasks.filter((t) => t.status === "done").length;
-  const total = initialTasks.length;
+  const refresh = useCallback(async () => {
+    const latest = await fetchMissionTasks(mission.slug);
+    setTasks(latest);
+  }, [mission.slug]);
+
+  usePolling(refresh, POLL_MS);
+
+  const done = tasks.filter((t) => t.status === "done").length;
+  const total = tasks.length;
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white">
@@ -89,20 +101,20 @@ export default function MissionDetail({
       {/* Tab content */}
       <div className="p-4">
         {tab === "timeline" && (
-          <MissionTimeline tasks={initialTasks} />
+          <MissionTimeline tasks={tasks} />
         )}
         {tab === "dag" && (
-          <TaskDependencyGraph tasks={initialTasks} />
+          <TaskDependencyGraph tasks={tasks} />
         )}
         {tab === "heatmap" && (
-          <WorkerHeatmap workers={workers} tasks={initialTasks} />
+          <WorkerHeatmap workers={workers} tasks={tasks} />
         )}
       </div>
 
       {/* Task list summary */}
       <div className="px-4 pb-8 space-y-2">
         <h2 className="text-[11px] text-zinc-500 uppercase tracking-wider mb-3">Tasks</h2>
-        {initialTasks.map((task) => (
+        {tasks.map((task) => (
           <div
             key={task.id}
             className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2"

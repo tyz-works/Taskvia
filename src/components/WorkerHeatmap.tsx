@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment } from "react";
 import type { Task, Worker } from "@/app/actions";
 
 const ALL_SKILLS = [
@@ -92,10 +93,9 @@ export default function WorkerHeatmap({
           const isRegisteredSkill = (s: string) => w.skills.includes(s);
 
           return (
-            <>
+            <Fragment key={w.name}>
               {/* Worker name cell */}
               <div
-                key={`name-${w.name}`}
                 className="bg-zinc-950 px-3 py-2 flex items-center gap-1.5"
               >
                 <span className="text-[11px] text-zinc-300 font-medium whitespace-nowrap">{w.name}</span>
@@ -124,7 +124,7 @@ export default function WorkerHeatmap({
                   </div>
                 );
               })}
-            </>
+            </Fragment>
           );
         })}
       </div>
