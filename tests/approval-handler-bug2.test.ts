@@ -64,11 +64,47 @@ describe("BUG-2: handleTokenDecision の非原子 get→check→set (src/lib/app
       store[key] = value;
     });
 
+    // ★Geordi追記(BUG-2修正): 原子化フィックスは非原子 get→check→set を
+    // 単一 Lua EVAL に置き換える(src/lib/approval-handler.ts 参照)。そのため
+    // このモックにも eval を追加する。mockGet と同じ 20ms 遅延を保持しつつ、
+    // read→check→write を「同一コールバック内」で同期的に完結させることで、
+    // 本物の Redis が Lua スクリプトをシングルスレッドで原子実行する性質を
+    // 忠実に再現する(=2つの並行呼び出しの set タイミングが遅延で重なっても、
+    // 片方のコールバックが完全に完了してから次のコールバックが走るため
+    // 割り込みは発生しない)。mockGet/mockSet はダウンストリームの
+    // `approval:{request_id}` card 更新(BUG-2の対象外)で引き続き使われる。
+    const mockEval = vi.fn(
+      (_script: string, keys: string[], args: string[]) => {
+        const key = keys[0];
+        const [decision, consumedAt] = args;
+        return new Promise<[string, string?]>((resolve) => {
+          setTimeout(() => {
+            const raw = store[key];
+            if (!raw) {
+              resolve(["missing"]);
+              return;
+            }
+            const entry = JSON.parse(raw);
+            if (entry.consumed_at) {
+              resolve(["already_used"]);
+              return;
+            }
+            entry.decision = decision;
+            entry.consumed_at = consumedAt;
+            const updated = JSON.stringify(entry);
+            store[key] = updated;
+            resolve(["ok", updated]);
+          }, 20);
+        });
+      },
+    );
+
     vi.doMock("@upstash/redis", () => ({
       Redis: {
         fromEnv: () => ({
           get: mockGet,
           set: mockSet,
+          eval: mockEval,
         }),
       },
     }));

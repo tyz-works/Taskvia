@@ -1,5 +1,6 @@
 // src/app/api/cards/route.ts
 import { Redis } from "@upstash/redis";
+import { isAuthorized, unauthorized } from "@/lib/auth";
 
 const redis = Redis.fromEnv();
 
@@ -51,7 +52,9 @@ async function runCardsScript(): Promise<(string | null)[]> {
   }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (!isAuthorized(req)) return unauthorized();
+
   const raws = await runCardsScript();
 
   if (!raws || raws.length === 0) return Response.json({ cards: [] });

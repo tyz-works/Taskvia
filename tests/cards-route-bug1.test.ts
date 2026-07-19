@@ -57,17 +57,18 @@ describe("BUG-1: GET /api/cards が認証チェックを欠いている (src/app
     expect(res.status).toBe(401);
   });
 
-  it("(現状挙動の確認) 無認証でも 200 が返り承認カードの中身が漏洩する", async () => {
+  // ★Geordi追記: 元々ここには「(現状挙動の確認) 無認証でも200が返り漏洩する」という
+  // BUG-1修正前の脆弱な挙動を直接確認するテストがあった。BUG-1修正(isAuthorized
+  // ガード追加)により当該挙動は解消済みで、そのアサーション(200を期待)は事実に
+  // 反するため削除した。上のテストが「修正後の正しい契約(401)」を継続的に検証する。
+  it("Authorization ヘッダが正しければ 200 でカードが返る(非回帰)", async () => {
     const { GET } = await import("@/app/api/cards/route");
-    // 現行シグネチャは GET() (引数なし)。修正後は GET(req: Request) になる想定のため、
-    // 型はここで意図的にキャストする(このテストは修正後シグネチャに対しても有効であるべき)。
-    const typedGet = GET as unknown as (req: Request) => Promise<Response>;
-
-    const req = new Request("http://localhost/api/cards");
-    const res = await typedGet(req);
+    const req = new Request("http://localhost/api/cards", {
+      headers: { Authorization: "Bearer secret-token-should-be-required" },
+    });
+    const res = await GET(req);
     const body = await res.json();
 
-    // BUG-1 が現に存在することの直接証拠: 認証なしで pending カードの詳細が読める。
     expect(res.status).toBe(200);
     expect(body.cards).toHaveLength(1);
     expect(body.cards[0].id).toBe("card-1");
