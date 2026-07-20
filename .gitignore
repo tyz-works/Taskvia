@@ -38,6 +38,11 @@ yarn-error.log*
 # vercel
 .vercel
 
+# task_150 ops: backup dump/manifest/restore-test log は実行毎の生成物のため追跡しない
+# (実行手順・ログ要約は docs/plans/task150_results/wesley.md へ昇格保存)
+/ops/backups/*
+!/ops/backups/.gitkeep
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
