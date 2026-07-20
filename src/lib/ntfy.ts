@@ -92,6 +92,23 @@ export async function publishResultNotification(
   });
 }
 
+// ④operation.alert(§17.2 line886): out-of-band channelの最小1経路としてntfyへ送る。
+// dedup key / active・acknowledged・resolved状態モデル(§17.2の全機構)は本MVPの
+// スコープ外(task_150計画書「§17全signal」除外)。既存ntfyPublishの失敗握り潰し
+// パターン(fetch失敗時もthrowしない)をそのまま継承する。
+export async function publishOperationAlert(alert: {
+  title: string;
+  message: string;
+  severity?: "warning" | "critical";
+}): Promise<void> {
+  await ntfyPublish({
+    title: `⚠️ ${alert.title}`,
+    message: alert.message,
+    priority: alert.severity === "critical" ? 5 : 4,
+    tags: ["warning"],
+  });
+}
+
 export async function publishErrorNotification(
   errorType: "expired" | "already_used",
 ): Promise<void> {

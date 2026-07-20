@@ -1,0 +1,31 @@
+# task_150 Phase0-MVP gateway: self-signed TLS (Caddy internal CA) を 443 で終端し、
+# taskvia コンテナへ reverse_proxy する。実 CA 証明書は取得しない(§14 の想定通り)。
+#
+# `/internal/health/watchdog` は本タスク(Phase1)では gateway 経由の route/proxy 配線のみ。
+# endpoint 実体は Phase2 Geordi GREEN が taskvia 側に実装する(現時点では taskvia 側に
+# 存在しないため 404 を返す — これは "gateway が 443 に載せている" ことの確認であり、
+# エンドポイント自体の正常性確認ではない)。
+
+{
+	admin off
+	debug
+	servers {
+		protocols h1 h2
+	}
+}
+
+localhost, gateway {
+	tls internal
+
+	log {
+		output stdout
+	}
+
+	handle /internal/health/watchdog {
+		reverse_proxy taskvia:3000
+	}
+
+	handle {
+		reverse_proxy taskvia:3000
+	}
+}

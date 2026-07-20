@@ -1,0 +1,84 @@
+# task_150 Phase0-MVP: Local Foundation 最小垂直スライス。
+# スコープ = ① Docker/compose 最小土台のみ。
+# PostgreSQL / Redis はいずれも「health 表示・起動確認用の最小構成」であり、
+# データの正本化(Phase1 以降)には一切踏み込まない。
+#
+# .env* は読まない(security.md)。ここに書く token/secret はすべて
+# ローカル dev 用の固定 fixture 値であり、本番シークレットではない。
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: taskvia
+      POSTGRES_PASSWORD: taskvia-dev-fixture
+      POSTGRES_DB: taskvia
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskvia"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # @upstash/redis は REST プロトコルのクライアントであり、生の redis:// では
+  # 置き換えられない。ローカル dev では serverless-redis-http (SRH) で
+  # 上の `redis` サービスを Upstash REST 互換 API として公開する
+  # (task_147/149 で確認済みの「node-redis 移行は Phase2 の別ワンセット作業」
+  # というスコープ判定は変えない — これは Phase1 の "現行コードのまま動かす"
+  # ための REST 互換 stub)。
+  redis-http:
+    image: hiett/serverless-redis-http:latest
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: taskvia-dev-fixture-token
+      SRH_CONNECTION_STRING: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  taskvia:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      # ② fail-fast(TASKVIA_TOKEN 未設定 → open mode)は Phase2 の実装スコープ。
+      # Phase1 時点では既存 auth.ts の挙動(空なら open mode)のまま dev token を与える。
+      TASKVIA_TOKEN: taskvia-dev-fixture-token
+      # ③ /internal/health/watchdog 用 scope token(fail-fastの対象外の別 token・
+      # §14.2の想定通りTASKVIA_TOKENとは別値)。
+      TASKVIA_WATCHDOG_TOKEN: taskvia-dev-fixture-watchdog-token
+      UPSTASH_REDIS_REST_URL: "http://redis-http:80"
+      UPSTASH_REDIS_REST_TOKEN: taskvia-dev-fixture-token
+      # next-auth v5 が要求する最小 fixture(実 Google OAuth 接続はしない)
+      AUTH_SECRET: taskvia-dev-fixture-auth-secret-not-for-prod
+      GOOGLE_CLIENT_ID: taskvia-dev-fixture-client-id
+      GOOGLE_CLIENT_SECRET: taskvia-dev-fixture-client-secret
+      # Vercel 以外(自前 Docker)ホスティングでは next-auth v5 が Host header を
+      # 既定で信頼しない(UntrustedHost error)。gateway/localhost 経由アクセスを
+      # 許可するための自前ホスティング標準設定(コード変更不要)。
+      AUTH_TRUST_HOST: "true"
+    depends_on:
+      redis-http:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+
+  gateway:
+    image: caddy:2-alpine
+    ports:
+      - "443:443"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - taskvia
+
+volumes:
+  caddy_data:
