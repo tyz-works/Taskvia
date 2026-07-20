@@ -51,6 +51,9 @@ services:
       # ② fail-fast(TASKVIA_TOKEN 未設定 → open mode)は Phase2 の実装スコープ。
       # Phase1 時点では既存 auth.ts の挙動(空なら open mode)のまま dev token を与える。
       TASKVIA_TOKEN: taskvia-dev-fixture-token
+      # ③ /internal/health/watchdog 用 scope token(fail-fastの対象外の別 token・
+      # §14.2の想定通りTASKVIA_TOKENとは別値)。
+      TASKVIA_WATCHDOG_TOKEN: taskvia-dev-fixture-watchdog-token
       UPSTASH_REDIS_REST_URL: "http://redis-http:80"
       UPSTASH_REDIS_REST_TOKEN: taskvia-dev-fixture-token
       # next-auth v5 が要求する最小 fixture(実 Google OAuth 接続はしない)
