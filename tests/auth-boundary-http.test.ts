@@ -37,6 +37,8 @@ const AUTH_SECRET_FIXTURE =
   "test-fixture-auth-secret-must-be-long-enough-for-encryption";
 const TASKVIA_TOKEN_FIXTURE = "test-fixture-bearer-token";
 const SESSION_COOKIE_NAME = "authjs.session-token";
+// compose.yaml:56 と同一の fixture 値(task_150で導入)。実際の watchdog scope token。
+const WATCHDOG_TOKEN_FIXTURE = "taskvia-dev-fixture-watchdog-token";
 
 const ROOT = process.cwd();
 
@@ -148,6 +150,7 @@ describe("実HTTP認証境界test: proxy.ts matcherとRoute Handler認証の競�
       AUTH_TRUST_HOST: "true",
       UPSTASH_REDIS_REST_URL: mock.url,
       UPSTASH_REDIS_REST_TOKEN: "unused-fixture-token",
+      TASKVIA_WATCHDOG_TOKEN: WATCHDOG_TOKEN_FIXTURE,
       PORT: String(PORT),
     };
 
@@ -222,5 +225,36 @@ describe("実HTTP認証境界test: proxy.ts matcherとRoute Handler認証の競�
     expect(res.headers.get("location")).toBeNull();
     const body = await res.text();
     expect(body).toContain("Taskvia");
+  });
+
+  // ★task_152 本題: task_151 の matcher(`/((?!api|login|_next/static|_next/image|
+  // favicon.ico).*)`)の除外リストに `internal` が無いため、`/internal/health/watchdog`
+  // が catch-all(UI page 保護)側に落ち、NextAuth session が無いと 307→/login に
+  // なってしまう。期待契約(§14.2・watchdog自身のtoken認証)は proxy を完全に
+  // 迂回してこの route handler へ直接到達すること。Picard の WSL2 実機検証(amun)で
+  // 初めて捕捉されたリグレッション — task_151 のこのテストファイルは watchdog path を
+  // 一度も通していなかった。
+
+  it("watchdogへの無tokenアクセスは401を期待するが現行は307(RED・proxyがUI page保護としてredirectしてしまいwatchdog自身の401ロジックに到達しない)", async () => {
+    const res = await fetch(`${BASE_URL}/internal/health/watchdog`, {
+      redirect: "manual",
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("watchdogへの誤tokenアクセスは401を期待するが現行は307(RED・同上)", async () => {
+    const res = await fetch(`${BASE_URL}/internal/health/watchdog`, {
+      headers: { Authorization: "Bearer wrong-watchdog-token" },
+      redirect: "manual",
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("watchdogへの正watchdog tokenアクセスは200で集約healthを返すべきだが現行は307(RED・同上・正規の運用経路が完全に遮断されている)", async () => {
+    const res = await fetch(`${BASE_URL}/internal/health/watchdog`, {
+      headers: { Authorization: `Bearer ${WATCHDOG_TOKEN_FIXTURE}` },
+      redirect: "manual",
+    });
+    expect(res.status).toBe(200);
   });
 });
