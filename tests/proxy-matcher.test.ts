@@ -67,9 +67,14 @@ const CASES: Case[] = [
   { path: "/login", shouldMatch: false, label: "/login は Proxy 非該当であるべき" },
   { path: "/api/auth/session", shouldMatch: false, label: "/api/auth/** は Proxy 非該当であるべき" },
   { path: "/_next/static/chunk.js", shouldMatch: false, label: "/_next/** は Proxy 非該当であるべき" },
+  // ★task_152: task_151のmatcherは`internal`を除外リストに含めておらず、
+  // /internal/health/watchdog(task_150新設・§14.2外部watchdog到達先)がcatch-all
+  // (UI page保護)側に落ちてしまう(RED)。Picard実機検証(WSL2 amun)で発見された
+  // リグレッション。
+  { path: "/internal/health/watchdog", shouldMatch: false, label: "/internal/health/watchdog は Proxy 非該当であるべき(machine endpoint)" },
 ];
 
-describe("matcher RED: 現行 config.matcher(['/', '/api/cards']) は期待契約の一部を満たさない", () => {
+describe("matcher RED: 現行 config.matcher は期待契約の一部を満たさない(/internal除外漏れ)", () => {
   for (const c of CASES) {
     it(`${c.label} (path=${c.path})`, () => {
       expect(matchesCurrentMatcher(c.path)).toBe(c.shouldMatch);
