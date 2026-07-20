@@ -19,13 +19,16 @@
 // (useSecureCookies=false 時、__Secure- prefix なし)。
 //
 // .env* は一切読まない — 全ての秘密情報はこのファイル内の固定 fixture 値のみ。
-// 実 Upstash / 実ntfy への接続は発生しない(UPSTASH_REDIS_REST_URL は到達不能な
-// dummy port を指し、かつ RED 状態では proxy が /api/cards を route handler 到達前に
-// 遮断するため Redis 呼び出し自体が発生しない)。
+// 実 Upstash / 実ntfy への接続は発生しない。GREEN化(proxy修正)後は /api/cards が
+// 実際に route handler へ到達し @upstash/redis(scriptLoad+evalsha)を呼ぶため、
+// このテストプロセス内に最小限のUpstash REST互換モックサーバーを立てて
+// UPSTASH_REDIS_REST_URL をそこへ向ける(startMockUpstashServer参照・実Upstashへは
+// 到達しない)。
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { readdirSync } from "node:fs";
 import path from "node:path";
+import http, { type Server } from "node:http";
 import { encode } from "next-auth/jwt";
 
 const PORT = 34151;
@@ -37,19 +40,49 @@ const SESSION_COOKIE_NAME = "authjs.session-token";
 
 const ROOT = process.cwd();
 
-const RUNTIME_ENV = {
-  ...process.env,
-  TASKVIA_TOKEN: TASKVIA_TOKEN_FIXTURE,
-  AUTH_SECRET: AUTH_SECRET_FIXTURE,
-  GOOGLE_CLIENT_ID: "test-fixture-client-id",
-  GOOGLE_CLIENT_SECRET: "test-fixture-client-secret",
-  AUTH_TRUST_HOST: "true",
-  // 到達不能な dummy port。RED 状態では proxy が先に遮断するため Redis 呼び出し
-  // 自体が発生せず、この URL への実接続は起きない。
-  UPSTASH_REDIS_REST_URL: "http://127.0.0.1:39999/unused",
-  UPSTASH_REDIS_REST_TOKEN: "unused-fixture-token",
-  PORT: String(PORT),
-};
+// GREEN化(Geordi Phase2)で追記: proxy 修正後は /api/cards が実際に route handler へ
+// 到達するようになるため、cards/route.ts の @upstash/redis 呼び出し(scriptLoad+evalsha)
+// が実行される。RED時点の到達不能dummy portのままだと500になる(proxyがもう遮断しない
+// ため)。vi.mock はこのテストが起動する spawn 子プロセスには効かないので、Upstash REST
+// プロトコルを最小限だけ話す本物のHTTPサーバーをこのテストプロセス内に立て、そこへ向ける。
+//
+// ★@upstash/redis は既定で auto-pipelining が有効("enableAutoPipelining ?? true")なため、
+// 同一tick内で連続実行される scriptLoad()→evalsha() は個別リクエストではなく単一の
+// `POST {baseUrl}/pipeline`(body=コマンド配列の配列、応答=`{result}`の配列)へ自動集約
+// される(単一コマンド時は`POST {baseUrl}`、応答=単一`{result}`)。両方の形状に対応する。
+function mockResultFor(command: unknown[]): unknown {
+  if (command[0] === "script" && command[1] === "load") return "mock-sha-cards";
+  if (command[0] === "evalsha") return [];
+  return null;
+}
+
+function startMockUpstashServer(): Promise<{ server: Server; url: string }> {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      let raw = "";
+      req.on("data", (chunk) => (raw += chunk));
+      req.on("end", () => {
+        const parsed = JSON.parse(raw || "[]");
+        res.setHeader("Content-Type", "application/json");
+        const isPipeline = (req.url ?? "").includes("pipeline");
+        if (isPipeline) {
+          const commands = parsed as unknown[][];
+          res.end(JSON.stringify(commands.map((c) => ({ result: mockResultFor(c) }))));
+          return;
+        }
+        res.end(JSON.stringify({ result: mockResultFor(parsed as unknown[]) }));
+      });
+    });
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      const port = typeof address === "object" && address ? address.port : 0;
+      resolve({ server, url: `http://127.0.0.1:${port}` });
+    });
+  });
+}
+
+let mockUpstashServer: Server | null = null;
+let RUNTIME_ENV: NodeJS.ProcessEnv = {};
 
 // Next.js の standalone 出力は環境により outputFileTracingRoot の推定パスが
 // 想定と異なりネストすることがある(このマシンでは $HOME 直下の無関係な
@@ -103,6 +136,21 @@ let serverProcess: ChildProcess | null = null;
 
 describe("実HTTP認証境界test: proxy.ts matcherとRoute Handler認証の競合(単体handler testでは検出不能)", () => {
   beforeAll(async () => {
+    const mock = await startMockUpstashServer();
+    mockUpstashServer = mock.server;
+
+    RUNTIME_ENV = {
+      ...process.env,
+      TASKVIA_TOKEN: TASKVIA_TOKEN_FIXTURE,
+      AUTH_SECRET: AUTH_SECRET_FIXTURE,
+      GOOGLE_CLIENT_ID: "test-fixture-client-id",
+      GOOGLE_CLIENT_SECRET: "test-fixture-client-secret",
+      AUTH_TRUST_HOST: "true",
+      UPSTASH_REDIS_REST_URL: mock.url,
+      UPSTASH_REDIS_REST_TOKEN: "unused-fixture-token",
+      PORT: String(PORT),
+    };
+
     try {
       execFileSync("npx", ["next", "build"], {
         cwd: ROOT,
@@ -133,6 +181,7 @@ describe("実HTTP認証境界test: proxy.ts matcherとRoute Handler認証の競�
 
   afterAll(() => {
     serverProcess?.kill("SIGTERM");
+    mockUpstashServer?.close();
   });
 
   it("Bearer付きGET /api/cardsは200を期待するが現行は401(RED・proxyがNextAuth session不在を理由にroute handler到達前に遮断)", async () => {

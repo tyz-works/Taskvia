@@ -23,12 +23,14 @@
 // vitest.config.ts の resolver 設定変更は本タスクのスコープ外(auth境界とは無関係の
 // 別問題)と判断し、行っていない。
 //
-// ★このヘルパーは「現行 matcher が plain string の配列である」という現在の実装形状に
-// 対してのみ忠実(faithful)である。Geordi Phase2の GREEN 化で matcher が単一の
-// negative-lookahead 正規表現文字列(Next.js コミュニティでよく使われる
-// `/((?!api|_next/static|...).*)`型)等の別形状に変わった場合、このヘルパーは
-// そのままでは機能しない。Phase2でこのテストファイルの matcher 解釈ロジックを
-// 新形状に合わせて更新する必要がある(本ファイルはその前提を明記して引き継ぐ)。
+// ★Geordi Phase2更新: matcher が単一の negative-lookahead 正規表現文字列
+// (`/((?!api|login|_next/static|_next/image|favicon.ico).*)`)へ変わったため、
+// `matchesCurrentMatcher()` を「plain string の厳密一致」から「各エントリを
+// 正規表現としてコンパイルして pathname に対しテストする」方式へ更新した。
+// Next.js の matcher 仕様(https://nextjs.org/docs/app/api-reference/file-conventions/middleware#matcher)
+// 自体が「エントリは正規表現としても解釈される」ことを公式に許容しており、
+// 本ヘルパーはその解釈に合わせて一般化した(plain string のみだった旧形状に対しても
+// `^entry$` は結果的に厳密一致と同義になるため後方互換)。
 import { describe, it, expect, beforeAll } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -50,7 +52,7 @@ beforeAll(() => {
 });
 
 function matchesCurrentMatcher(pathname: string): boolean {
-  return currentMatcher.some((entry) => entry === pathname);
+  return currentMatcher.some((entry) => new RegExp(`^${entry}$`).test(pathname));
 }
 
 type Case = { path: string; shouldMatch: boolean; label: string };

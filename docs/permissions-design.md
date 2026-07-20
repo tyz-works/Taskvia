@@ -15,7 +15,7 @@ TASKVIA_TOKEN (環境変数)
 | エンドポイント | 認証 | 操作種別 |
 |---|---|---|
 | `GET /api/health` | なし | Read (疎通確認) |
-| `GET /api/cards` | なし | Read (UI 用一覧) |
+| `GET /api/cards` | あり (Bearer/scope token) | Read (UI 用一覧) |
 | `GET /api/status/[id]` | あり | Read (hook ポーリング) |
 | `GET /api/cards/export` | あり | Read (CSV/JSON エクスポート) |
 | `GET /api/logs` | あり | Read (ログ閲覧) |
