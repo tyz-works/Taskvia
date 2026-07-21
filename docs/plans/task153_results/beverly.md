@@ -318,3 +318,105 @@ unregister実行=EXIT0・その後の/Query=EXIT非1(タスク不在確認)。**
   (原因=amun環境のtailscale serveとport443競合。task_153の5件のコードバグとは別カテゴリ)。
 - ポート変更等での回避策は禁止(Picard裁定)。gateway/tailscale競合の解決を待って再開する。
 - Phase4Rは現時点で未完了(gateway復旧待ち)。
+
+---
+
+# task_153 Phase4R 再開(gateway/tailscale競合解決後) — Step6/7/7.5/10 実施
+
+Picard確認: Adminがtailscale serveを8443へ移設・port443クリア済み。以下Picard精密指示に従い実施。
+
+## Step10(前半): gateway復旧の検証 — ★重要な再発防止確認
+
+`docker compose up -d gateway` 実行後、前回と同じ失敗パターン(「Started」表示だが実は無バインド)を
+繰り返していないか厳密に確認した。
+
+1回目 `docker compose up -d gateway`:
+```
+Container taskvia-gateway-1 Started
+```
+検証: `docker port taskvia-gateway-1` → **空**、`docker inspect .NetworkSettings.Ports` → `{}`。
+**前回と全く同じ症状を確認**(既存コンテナオブジェクトのport設定が壊れたまま起動しているだけで、
+実際には443を全くバインドしていない)。`docker inspect ... Created` で作成時刻が前回の失敗試行時
+(2026-07-21T11:17:57Z)のままであることを確認し、原因を特定。
+
+対処: `docker compose up -d --force-recreate gateway` でコンテナを強制再作成:
+```
+Container taskvia-gateway-1 Recreate
+Container taskvia-gateway-1 Recreated
+Container taskvia-gateway-1 Starting
+Container taskvia-gateway-1 Started
+```
+検証(再実施): `docker port taskvia-gateway-1` → `443/tcp -> 0.0.0.0:443` / `443/tcp -> [::]:443`。
+`docker inspect .NetworkSettings.Ports` → `{"443/tcp":[{"HostIp":"0.0.0.0","HostPort":"443"},{"HostIp":"::","HostPort":"443"}],...}`。
+**実バインドを確認**。`curl -sk https://localhost/` → `307`(実HTTP往復で確認)。5コンテナ全てUp。
+
+ntfy-sinkはStep8で撤去済みのため、Step6/7の通知検証用に再度起動(この選択を明記: 到達不能URL代替でなく
+実httpbin再起動を採用)。sanity実行で`WATCHDOG-RUN: probe=ok findings=0 sent=0 failed=1`
+(web_unreachableのresolved通知がntfy-sink不在で送達失敗)を確認後、ntfy-sink再起動→
+再実行で`sent=1 failed=0`→再々実行で`sent=0 failed=0`のクリーンベースラインを確認。
+
+## Step6: 誤token→401 — PASS
+
+```
+$ (watchdog_token を "wrong-token-for-qa-test" に変更)
+$ taskvia-watchdog.ps1 実行
+WATCHDOG-RUN: probe=unauthorized findings=1 sent=1 failed=0
+```
+state file: `"watchdog_auth_failed": {"severity":"critical","message":"http_status=401 detail=",...}`。
+token値・接続文字列・内部hostnameのいずれも message/stdout/state file に含まれないことを確認
+(detail は空文字列のみ)。
+
+## Step7: backup疑似障害 — PASS
+
+Step6の誤tokenをまず正しい値に復元した上で(Step6起因のunauthorizedとStep7のbackup障害を混在させず
+単一変数で検証するため)、`backup_dir` のみ存在しないパス(`C:\Nonexistent\Path\For\QA\Test`)に変更:
+```
+WATCHDOG-RUN: probe=ok findings=1 sent=2 findings=1 failed=0
+```
+(sent=2はwatchdog_auth_failedのresolved1件+backup_marker_unreadableの新規1件)。
+state file: `"backup_marker_unreadable": {"severity":"warning","message":"detail=",...}`。
+実パス・内部情報の漏洩なしを確認。
+
+## Step7.5: config復元・健全性確認 — PASS
+
+事前に保存していた config バックアップ(Step6直前の正常値)から `watchdog_token` と `backup_dir`
+の両方を正しい値へ復元:
+```
+1回目: WATCHDOG-RUN: probe=ok findings=0 sent=1 failed=0   # backup_marker_unreadableのresolved
+2回目: WATCHDOG-RUN: probe=ok findings=0 sent=0 failed=0   # 完全クリーン
+```
+バックアップファイル(`watchdog-config.json.qa-backup`)も削除しC:\ProgramData\Taskvia配下を
+検証前と同一の状態に戻した。
+
+## Step8(再実施): ntfy-sink最終撤去 — PASS
+
+Step6/7検証用に再起動したntfy-sinkを最終的に撤去:
+```
+$ docker stop ntfy-sink
+ntfy-sink
+$ docker ps --format "{{.Names}}"
+（ntfy-sinkは含まれない・taskvia-gateway-1以下8コンテナのみ）
+```
+
+## Step10: 最終復旧確認 — PASS
+
+```
+$ docker compose up -d && docker ps --format "{{.Names}}\t{{.Status}}"
+taskvia-gateway-1      Up 3 minutes
+taskvia-taskvia-1      Up 23 minutes
+taskvia-redis-http-1   Up 23 minutes
+taskvia-postgres-1     Up 23 minutes (healthy)
+taskvia-redis-1        Up 23 minutes (healthy)
+$ curl -sk https://localhost/ → 307
+$ schtasks /Query /TN "Taskvia-Watchdog-Phase0" → エラー:指定されたファイルが見つかりません。EXIT=1
+```
+5コンテナ全てUp・UI疎通307・**Scheduled Taskは未登録のまま(Picard指示通りの正しい終了状態)**。
+参考: `curl https://127.0.0.1/` は引き続き000(バグ1修正によりCaddyがSNI一致のhostname接続のみを
+受け付ける設計へ変わったことの意図した結果であり、regressionではない)。
+
+## 最終結論
+
+Step1〜10・Step7.5・Step8・Step9 **全てPASS実測で確認**。DoD#4(全停止でも外部通知)はStep5で実証済み。
+環境ブロッカー(tailscale port競合)はAdmiralが8443へ移設し解消、Beverly側での固定的な回避策
+(ポート変更等)は一切行っていない。コード変更はゼロ。Taskvia-Watchdog-Phase0 Scheduled Task は
+Admiral実機に未登録の状態(次に監視を開始する場合は実ntfy topic設定の上で再登録が必要)。
