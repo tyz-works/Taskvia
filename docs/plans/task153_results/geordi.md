@@ -105,3 +105,107 @@ Test Files  8 passed (8)
 - amunのUNCパスは`\\wsl.localhost\`ではなく`\\wsl$\`が正だった(plan doc記載のコマンド例をそのまま
   使うと-Fileパラメータでファイルが見つからないエラーになる) — Phase3(Wesley)のScheduled Task登録でも
   同様の読み替えが必要になる可能性が高いため申し送り。
+
+---
+
+# task_153 Phase2R(Geordi, rework) GREEN — バグ1-5修正 実出力記録
+
+Beverly の独立QA(Phase4)が amun 実機で「probe=ok に到達する経路が構造的に存在しない」ことを検出し
+PUSHED BACK。Picard が amun 実機で独立検証・裁定した5件のバグ(`docs/plans/20260721_task153_rework.md`)
+を Worf の新RED(commit dee4446/ea06cfc)を受けて修正した。
+
+commit: `953c229` — "fix: task_153 rework GREEN — バグ1-5修正(TLS SNI/証明書callback/jsonl/日付パース,Picard裁定)"
+push: `feature/task_153` へ push 済み(ea06cfc..953c229)
+
+## 修正内容
+
+### バグ1: watchdog_url の IP literal
+`ops/watchdog/watchdog-config.example.json` の `watchdog_url` を `https://127.0.0.1/...` から
+`https://localhost/...` に変更。`_note` に「IP literalはSNI不在でCaddyがハンドシェイク拒否・証明書検証
+無効化しても到達不能・必ずホスト名localhostを使うこと」を追記。`docker/Caddyfile` は変更していない。
+
+### バグ2: 証明書検証callbackのruntime依存
+`taskvia-watchdog.ps1` の `ServerCertificateValidationCallback` への生scriptblock代入を、`Add-Type` の
+C#静的クラス `Taskvia.Watchdog.CertValidation.Validate` + `[Delegate]::CreateDelegate` に置換。
+型定義は `PSTypeName` で存在チェックしてから1回だけ `Add-Type`(プロセス内二重定義エラー防止)。
+loopback限定緩和ロジック(`127.0.0.1`/`localhost`のみ検証bypass、それ以外は`SslPolicyErrors.None`要求)は
+C#側にそのまま移植。`-SkipCertificateCheck`は使用せず、PowerShell 7への移行も行っていない
+(Picardがamun実機でPS5.1のままTLSハンドシェイク成功・401到達を実証済みのため)。
+
+### バグ3: restore-test.sh の jsonl契約
+`ops/restore-test.sh` の62行目・95行目、2箇所の `jq -n` を `jq -nc` に変更(compact JSON出力化)。
+既存の pretty-print混入行の扱いは変更していない(読み側catch{continue}で読み飛ばす)。
+
+### バグ4/5: 日付パースのUTC統一
+`watchdog-lib.ps1`(I/Oゼロの純粋関数集合という既存の性質を維持)に `ConvertTo-WatchdogUtcTime`
+(引数=文字列1つ、戻り値=`[datetime]` Kind=Utc)を新設。`taskvia-watchdog.ps1` の3箇所
+(旧`ConvertTo-WatchdogUtc`関数本体・`Get-WatchdogBackup`内の`ParseExact`呼び出し2箇所)をこの関数の
+呼び出しに置き換え、旧`ConvertTo-WatchdogUtc`関数定義自体を削除した。
+
+★★実装で1回FAILを踏んだ実測知見(rework docの想定を超える追加発見):
+ParseExactの書式文字列に**無引用の`Z`**を置くと、`DateTimeStyles.None`であっても.NETがUTC指示子として
+特別扱いし、ローカルタイムゾーン(JST)へ+9h変換した上でKind=Localを返す。「`Z`は書式指定子表に無いので
+リテラル扱いされる」という当初の想定は誤りだった。amun実機での確認用プローブ(`/tmp/probe_parseexact.ps1`
+に一時作成・検証後delete、リポジトリ非変更):
+```
+None:                 2026/07/21 15:39:50 Kind=Local   (+9h、rework docの指摘したバグと同型の再発)
+NoCurrentDateDefault:  2026/07/21 15:39:50 Kind=Local   (styleを変えても同じ)
+QuotedZ('Z'を単一引用符で囲む):  2026/07/21 6:39:50 Kind=Unspecified  (値が変換されない=正しい)
+```
+`Z`を単一引用符(`'Z'`)で囲んでリテラル文字と明示することで初めて値が変換されなくなる。最終実装は
+`"yyyyMMddTHHmmss'Z'"` / `"yyyy-MM-ddTHH:mm:ss'Z'"` を使い、`SpecifyKind(...,'Utc')`でラベル付与。
+書き込み側 `ConvertFrom-WatchdogUtc`(`.ToString('yyyy-MM-ddTHH:mm:ssZ')`、`Z`はToString側では最初から
+リテラル扱いなので無変更)との不動点性はWorfの統合テスト項目5(state fileラウンドトリップ完全一致)で確認。
+
+## amun実機 TEST-RESULT(修正後・最終)
+
+### test-watchdog-lib.ps1(既存29+追加2=31件)
+```
+(...既存29件は前回と同一のため省略。以下は新規2件)
+ok: ConvertTo-WatchdogUtcTime: compact形式(20260721T063950Z)が2026-07-21 06:39:50 Kind=Utc(バグ4 pin)
+ok: ConvertTo-WatchdogUtcTime: extended形式(2026-07-21T06:39:50Z)が2026-07-21 06:39:50 Kind=Utc(バグ5 pin)
+TEST-RESULT: PASS 31/31
+PWSH_EXIT=0
+```
+(1回目実行はバグ4/5修正前の`Z`無引用実装でFAIL 29/31だった。上記QuotedZ修正後の2回目実行で31/31 GREEN)
+
+### test-watchdog-integration.ps1(実TLS経路統合テスト・新設)
+```
+ok: 項目1: 正しいtokenで実TLS経路(https://localhost/...)がHTTP200(probe=ok)に到達する(バグ2 回帰pin)
+ok: 項目4: 証明書検証callbackが別スレッド呼び出しで例外化しない(PSInvalidOperationExceptionが発生しない, バグ2 回帰pin — 項目1のprobe=ok到達で確認)
+ok: 項目5: state fileのUTCラウンドトリップが不動点(書込んだfirst_seenと読み戻し後の値が完全一致, バグ5 回帰pin)
+ok: 項目6: watchdog本体を1回実行しWATCHDOG-RUN: probe=okに到達する(E2E到達性)
+ok: 項目2a: 誤tokenで実TLS経路がHTTP401(probe=unauthorized)に到達する
+ok: 項目2b: 誤token失敗時の出力にtoken値・接続文字列・内部hostnameを含まない(§14.2)
+ok: 項目3: IP literal(https://127.0.0.1/...)は到達できない(バグ1・既知の制約の回帰pin)
+TEST-RESULT: PASS 7/7
+PWSH_EXIT=0
+```
+実行前提の5コンテナ(taskvia/gateway/postgres/redis/redis-http)はamunで稼働中確認済み(全てUp)。
+このテストは自前の一時config/一時state file(`$env:TEMP`配下)のみを使い、提督デプロイ済みの
+`C:\ProgramData\Taskvia\`配下は一切参照していない(rework doc §4.1の隔離要件どおり)。
+
+## npm test / lint / build(Mac側・修正後)
+```
+Test Files  8 passed (8)
+     Tests  55 passed (55)
+```
+既存契約(vitest 55件)に回帰なし(`ops/restore-test.sh`変更はシェルスクリプトでvitest対象外だが、
+念のため全件再実行し非回帰を確認)。
+
+```
+npm run lint: 新規エラー0件(既存2エラー1警告は前回Phase2記録と同一・task_153由来でない)
+npm run build: 成功(全22ルート生成)
+```
+
+## 申し送り(Phase3R Wesleyへ)
+
+- amunのデプロイ済み `C:\ProgramData\Taskvia\watchdog-config.json` はまだ `watchdog_url=127.0.0.1` の
+  ままで残っている(rework doc §6の指摘通り、これを`localhost`へ直すのはPhase3Rのスコープ)。
+  今回のPhase2Rの変更は `ops/watchdog/watchdog-config.example.json`(テンプレート)のみで、
+  デプロイ済み実ファイルには一切触れていない。
+- `register-task.ps1`/`unregister-task.ps1` は今回変更していない(証明書callback等の変更は
+  `taskvia-watchdog.ps1`/`watchdog-lib.ps1`内で閉じており、Scheduled Task登録スクリプト自体への
+  影響はない)。
+- runbook(`docs/runbooks/phase0-watchdog.md`)には、ParseExactの無引用`Z`が+9h変換される.NETの挙動
+  (今回の実測知見)も一言残しておくと将来の類似修正で再発を防げる可能性がある(必須ではないが申し送り)。
