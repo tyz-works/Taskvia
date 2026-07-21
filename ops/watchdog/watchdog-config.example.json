@@ -1,0 +1,16 @@
+{
+  "_note": "task_153: dependency_signals の既定は redis のみ。postgres/n8n は src/app/internal/health/watchdog/route.ts:54-55 のとおり Phase0 では構造上の placeholder として常に unreachable を返すため、監視対象に入れると恒常的な誤報になる。Phase1/Phase4 で実チェックへ置換された時点で config に追加すること。ダミー値のみ — 実 token・実 ntfy topic を絶対にコミットしないこと。 / task_153 rework バグ1: watchdog_url は必ずホスト名(localhost)を使うこと。IP literal(127.0.0.1)はTLS ClientHelloにSNIが付かず、docker/Caddyfileのlocalhost,gatewayサイトブロックにマッチしないためCaddyがハンドシェイクを拒否する。証明書検証を無効化しても到達できない。",
+  "watchdog_url": "https://localhost/internal/health/watchdog",
+  "watchdog_token": "REPLACE_WITH_TASKVIA_WATCHDOG_TOKEN",
+  "ntfy_url": "https://ntfy.example.invalid",
+  "ntfy_topic": "REPLACE_WITH_NTFY_TOPIC",
+  "ntfy_user": "",
+  "ntfy_pass": "",
+  "backup_dir": "\\\\wsl.localhost\\Ubuntu-24.04\\home\\tkadmin\\taskvia\\ops\\backups",
+  "state_file": "C:\\ProgramData\\Taskvia\\watchdog-state.json",
+  "dependency_signals": ["redis"],
+  "backup_stale_hours": 26,
+  "restore_test_stale_days": 35,
+  "alert_backoff_base_minutes": 15,
+  "alert_max_notifications": 5
+}

@@ -63,6 +63,16 @@ describe("②fail-fast: TASKVIA_TOKEN 未設定/空白時に /api/health は503�
 
   it("非回帰: TASKVIA_TOKEN が正しく設定されていれば200のまま(現状PASS・GREEN化後も維持すべき契約)", async () => {
     vi.stubEnv("TASKVIA_TOKEN", "valid-token-fixture");
+    // task_153 DoD#6: /api/health は TASKVIA_TOKEN に加え 3 owner の identity/alert
+    // destination も揃って初めて200を返す(tests/deployment-validation.test.ts が本体契約)。
+    // この非回帰テストの主張は「fail-fastがTASKVIA_TOKENを正しく見る」ことなので、
+    // owner側は有効値で揃えて token 側の挙動のみを検証する。
+    vi.stubEnv("TASKVIA_OPERATOR_ID", "tkadmin");
+    vi.stubEnv("TASKVIA_OPERATOR_ALERT", "ntfy://taskvia-ops");
+    vi.stubEnv("TASKVIA_BACKUP_OWNER_ID", "tkadmin");
+    vi.stubEnv("TASKVIA_BACKUP_OWNER_ALERT", "ntfy://taskvia-ops");
+    vi.stubEnv("TASKVIA_SECURITY_OWNER_ID", "tkadmin");
+    vi.stubEnv("TASKVIA_SECURITY_OWNER_ALERT", "ntfy://taskvia-ops");
 
     const { GET } = await import("@/app/api/health/route");
     const res = await GET();
