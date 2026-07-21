@@ -214,6 +214,40 @@ $state = Update-WatchdogSightings -State $state -Findings $findings -NowUtc $t5
 $n = @(Get-WatchdogNotifications -State $state -Config $config -NowUtc $t5)
 Assert-Equal 1 $n.Count '配送失敗後は backoff を待たず次回再送する'
 
+# --- ConvertTo-WatchdogUtcTime 契約(task_153 rework Phase1R・バグ4/5 の回帰 pin) ---
+#
+# rework doc §4.2: watchdog-lib.ps1(純粋関数・I/O なし)へ日付パースを移設する契約。
+# 引数=文字列1つ、戻り値=[datetime](Kind=Utc)。現時点では watchdog-lib.ps1 に
+# この関数は存在しないため、呼び出しは「コマンドが見つからない」で必ず FAIL する(RED)。
+# 未定義関数呼び出しは terminating error になるため、Assert-Equal と違い個別に
+# try/catch で捕捉し、最終行の TEST-RESULT 出力に確実に到達できるようにする。
+
+function Assert-UtcTimeParse {
+    param([string]$Raw, [string]$Name)
+    $script:Total++
+    try {
+        $r = ConvertTo-WatchdogUtcTime $Raw
+        $expected = [datetime]::Parse('2026-07-21T06:39:50')
+        if ($r -eq $expected -and $r.Kind -eq [System.DateTimeKind]::Utc) {
+            Write-Output ("ok: {0}" -f $Name)
+        } else {
+            $script:Failed++
+            Write-Output ("FAIL: {0} | expected=<2026-07-21 06:39:50 Kind=Utc> actual=<{1} Kind={2}>" -f $Name, $r, $r.Kind)
+        }
+    } catch {
+        $script:Failed++
+        Write-Output ("FAIL: {0} | error=<{1}>" -f $Name, $_.Exception.Message)
+    }
+}
+
+# 19. compact(basic) 形式 "20260721T063950Z"(ops/backup.sh の manifest completed_at と同形式)
+#     → 2026-07-21 06:39:50 Kind=Utc であること(バグ4 pin: ParseExact が +9h ずれていた)
+Assert-UtcTimeParse '20260721T063950Z' 'ConvertTo-WatchdogUtcTime: compact形式(20260721T063950Z)が2026-07-21 06:39:50 Kind=Utc(バグ4 pin)'
+
+# 20. extended(ISO 8601) 形式 "2026-07-21T06:39:50Z"(state file の first_seen 等と同形式)
+#     → 2026-07-21 06:39:50 Kind=Utc であること(バグ5 pin: [datetime]::Parse が +9h ずれていた)
+Assert-UtcTimeParse '2026-07-21T06:39:50Z' 'ConvertTo-WatchdogUtcTime: extended形式(2026-07-21T06:39:50Z)が2026-07-21 06:39:50 Kind=Utc(バグ5 pin)'
+
 # --- 結果出力 ---
 $passed = $script:Total - $script:Failed
 Write-Output ("TEST-RESULT: {0} {1}/{2}" -f $(if ($script:Failed -eq 0) { 'PASS' } else { 'FAIL' }), $passed, $script:Total)
