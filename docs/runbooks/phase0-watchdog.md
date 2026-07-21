@@ -26,6 +26,12 @@ watchdog 自体は Taskvia アプリ本体（Next.js プロセス）に依存せ
    - `ntfy_url` / `ntfy_topic` — 提督の実 ntfy サーバ・topic
    - `backup_dir` / `state_file` — 環境に合わせて調整（既定値はそのままで動作する）
 3. token 値は決してログ・コミット・チャットに残さないこと。
+4. **`watchdog_url` は必ずホスト名（`https://localhost/internal/health/watchdog`）を使うこと。
+   IP literal（`https://127.0.0.1/...`）を指定してはならない。**
+   TLS ClientHello の SNI（Server Name Indication）は IP literal では送出されないため、
+   `docker/Caddyfile` の `localhost, gateway` サイトブロックにマッチせず Caddy がハンドシェイク自体を
+   拒否する。証明書検証を無効化しても到達できない、TLS 層の構造的な問題である
+   （詳細は §8「TLS エラーが出る場合」参照）。
 
 ---
 
@@ -73,6 +79,23 @@ WATCHDOG-RUN: probe=<status> findings=<n> sent=<n> failed=<n>
 - `findings`: 検出した異常の件数（0 なら正常）
 - `sent`: ntfy への通知送信に成功した件数
 - `failed`: ntfy への通知送信に失敗した件数（次回実行時に再送される）
+
+### 統合テスト（実 TLS 経路）: `test-watchdog-integration.ps1`
+
+`test-watchdog-lib.ps1`（純粋関数のみ・29 アサーション）では検出できない層
+（TLS・SNI・証明書 callback・state file ラウンドトリップ）を、稼働中の実スタックに対して
+実際に TLS 経路を通して検証する統合テスト。
+
+**前提**: amun 上で Taskvia スタックの 5 コンテナが Up していること（`docker compose ps` で確認）。
+Mac / CI では実行できない（amun の稼働スタックに依存するため）。
+
+**実行**（自前の一時 config / state file のみを使い、`C:\ProgramData\Taskvia\` 配下は一切変更しない）:
+```bash
+cd ~/workspace/taskvia && tar cf - ops/watchdog | ssh amun 'cd /home/tkadmin/taskvia && tar xf -'
+ssh amun '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -NoProfile -ExecutionPolicy Bypass -File "\\\\wsl.localhost\\Ubuntu-24.04\\home\\tkadmin\\taskvia\\ops\\watchdog\\test-watchdog-integration.ps1" 2>&1 | grep -a "TEST-RESULT"; echo "EXIT=${PIPESTATUS[0]}"'
+```
+期待値: `TEST-RESULT: PASS 7/7`、`EXIT=0`。判定は CP932 文字化けの影響を受けない
+`TEST-RESULT:` 行と exit code のみで行うこと。
 
 ---
 
@@ -133,12 +156,21 @@ Phase 0 DoD review（decision doc §3 step5）で提督が実施する残項目:
 
 ### TLS エラーが出る場合
 gateway（Caddy）は自己署名証明書（`tls internal`）を使うため、`watchdog_url`
-（loopback = `127.0.0.1`/`localhost`）宛てに限り証明書検証を緩めている
-（`taskvia-watchdog.ps1` の `ServerCertificateValidationCallback`）。
+（loopback = `127.0.0.1`/`localhost`）宛てに限り証明書検証を緩めている。
 `ntfy_url` を含むそれ以外の宛先では通常の証明書検証を維持するため、
 ntfy サーバの証明書が正しく発行されているか確認すること。
 また PowerShell 5.1 既定の TLS 1.0 では HTTPS 接続が失敗することがあるため、
 `taskvia-watchdog.ps1` は起動時に TLS 1.2 を明示的に有効化している。
+
+**証明書検証 callback が C# 静的デリゲート方式である理由**: この loopback 限定の緩和ロジックは
+生の PowerShell scriptblock ではなく、`Add-Type` で定義した C# の静的メソッドを
+`[Delegate]::CreateDelegate` で `ServerCertificateValidationCallback` に割り当てる方式で実装している
+（`Taskvia.Watchdog.CertValidation.Validate`）。理由: `ServicePointManager` の証明書検証 callback は
+TLS ハンドシェイクを処理する別スレッドから呼び出されるが、PowerShell 5.1 の scriptblock はその生成元の
+runspace に紐づいており、別スレッドから呼び出すと `PSInvalidOperationException` を送出して失敗する
+（`WebException: SendFailure` として握りつぶされ、一見 TLS エラーとしか見えない非クラッシュの静かな失敗になる）。
+コンパイル済みの C# 静的メソッドは runspace に依存しないため、どのスレッドから呼ばれても正しく動作する。
+`-SkipCertificateCheck`（PowerShell 5.1 に存在しない）は使わず、PowerShell 7 へも移行しない。
 
 ### schtasks.exe の既知の落とし穴（Wesley 実測）
 `schtasks.exe /Create /TR "<コマンド文字列>"` は、コマンド文字列が約262文字を超えると
