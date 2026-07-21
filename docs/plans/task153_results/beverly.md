@@ -196,3 +196,125 @@ Claude Code の permission classifier が以下を拒否した(理由: 提督の
   probe=unreachable の再現性を確認(2種類のURL構成、両方とも失敗するが原因が異なることまで特定)
 - バグ3/4は既存スクリプトの関数定義部のみを抽出した読み取り専用デバッグ実行で特定(スクリプト自体・
   リポジトリファイルは一切変更していない)
+
+---
+---
+
+# task_153 Phase4R(Beverly) 独立QA再実施 — 追記
+
+作成: 2026-07-21(rework) / commit 953c229(バグ1-4修正)後の再検証・コード変更ゼロ
+エスカレーション手順(rework doc §7.1)適用: classifierブロック時はRikerへ実行委任→生出力を確認→Beverryが判定。
+
+## 事前確認
+
+- Wesley Phase3Rにより watchdog_url は `https://localhost/internal/health/watchdog` に更新済み、
+  Scheduled Task も再登録済みであることを確認。
+- amun実機の `ops/watchdog/taskvia-watchdog.ps1`・`watchdog-lib.ps1` は commit 953c229 相当
+  (Add-Type CertValidation・ConvertTo-WatchdogUtcTime)がデプロイ済みであることを実機grepで確認。
+- **新規発見(デプロイスコープの穴)**: `ops/restore-test.sh` の bug3 修正(`jq -n`→`jq -nc`)は
+  runbook の再デプロイ手順(`tar cf - ops/watchdog | ssh amun ...`)が `ops/watchdog/` 配下しか
+  カバーしないため amun に未反映だった。Riker経由でエスカレーション→`tar cf - ops/restore-test.sh`
+  を追加同期→2箇所とも `jq -nc` になっていることを実機grepで確認(Riker実行・Beverly独立確認)。
+
+## Step1: 正常時に通知が出ないことの確認 — ★★PASS(バグ1-4修正の効果を実機確認)
+
+- ntfy-sink(httpbin --rm)起動 → `ops/seed-marker.sh`→`ops/backup.sh`→`ops/restore-test.sh`
+  (jq未導入のため前回同様docker経由jq shimを使用・スクリプト自体は無変更)で新鮮なmarker作成
+  (option (a) 採用)。restore-test-log.jsonl の新規行が1行にコンパクト化されていることを確認
+  (`{"started_at":"20260721T110329Z",...}` — bug3修正の効果を実機確認)。
+- 1回目実行: `WATCHDOG-RUN: probe=ok findings=0 sent=1 failed=0`
+  (findings=0だがsent=1 — 前回のPUSHED BACK時に発火していたrestore_test_staleのresolved通知が
+  1回だけ出た。デプロイスコープの穴が解消された直接的な証拠)。
+- 2回目実行: `WATCHDOG-RUN: probe=ok findings=0 sent=0 failed=0` — **完全にクリーンなベースライン**。
+  ★★バグ1(SNI不一致)・バグ2(ServerCertificateValidationCallback runspace例外)の修正が実TLS経路で
+  機能していることを実機確認(前回はどちらの構成でもprobe=unreachable/SendFailureだった)。
+
+## Step2: web停止→通知 — PASS
+
+`docker compose stop taskvia`(taskvia-1のみ・classifierブロック→Riker実行委任→Beverly独立確認で
+`docker compose ps`残り4コンテナ無変更を確認)。
+`WATCHDOG-RUN: probe=bad_status findings=1 sent=1 failed=0`。gatewayはSNI一致で到達可能なまま
+バックエンド不通のためTLSレベルでなくHTTPレベル(bad_status)で検知——前回の「TLS層で必ず失敗し
+web停止/起動の区別が原理的に不可能」という指摘が解消されたことを示す決定的な差分。
+
+## Step3: backoff(dedup) — PASS
+
+即再実行: `WATCHDOG-RUN: probe=bad_status findings=1 sent=0 failed=0`(15分未経過で再通知抑制)。
+
+## Step4: 復旧→resolved通知 — PASS
+
+`docker compose start taskvia`(classifierブロックなく実行可)→5コンテナUp確認→
+1回目: `WATCHDOG-RUN: probe=ok findings=0 sent=1 failed=0`(resolved通知1件)
+2回目: `WATCHDOG-RUN: probe=ok findings=0 sent=0 failed=0`(再送なし)。
+
+## Step5: ★★★DoD#4本体・全停止でも通知★★★ — ★★PASS
+
+`docker compose stop`(gateway含め全5コンテナ・classifierブロック→Riker実行委任→Beverly独立確認で
+`docker compose ps`空・`docker ps`にtaskvia系コンテナなしを確認)。
+`WATCHDOG-RUN: probe=unreachable findings=1 sent=1 failed=0`。
+**Taskvia本体・postgres・redisが全て停止した状態でも、Windows Scheduled Task経由の独立watchdogが
+外部通知を送信できることを実機で実証した。これがDoD#4の核心であり、rework全体のゴール。**
+
+## ★★環境ブロッカー(新規発見・task_153のコード5バグとは別系統・Riker/Picardへ緊急escalation済み)
+
+Step5後の復旧(`docker compose start`)で **gatewayコンテナのみport 443バインドに失敗**
+(`failed to bind host port 0.0.0.0:443/tcp: address already in use`)。
+
+**原因(Riker独立診断・Beverly診断と一致)**: amun上で `tailscaled` が起動済み(Jul20から稼働・
+本タスクとは無関係)であり、`tailscale serve`(`https://amun.tail2c516a.ts.net` → `http://127.0.0.1:5678`
+= n8n)が port 443 を Tailscale インターフェースの特定アドレス(`100.100.101.66:443` /
+`[fd7a:115c:a1e0::...]:443`)で既に握っている。gatewayコンテナは長時間 `0.0.0.0:443` を保持して
+いたため共存できていたが、Step5でgatewayを停止しbindを解放した結果、再バインド時に競合が
+表面化したと推定(bind順序依存の潜在衝突・task_153の変更が原因ではない)。
+
+★Riker指摘: tailscaled自体(ssh amun の疎通経路である可能性)を停止するのはscope外・危険なため
+実施していない。Picardへ判断を委ねた。
+
+**現状**: taskvia-postgres-1/redis-1/redis-http-1/taskvia-1 の4コンテナはUp。gatewayのみ
+`docker compose up -d gateway` が port競合でExit 1のまま。Step6以降(web疎通・誤token・backup疑似障害・
+Step10の5コンテナUp確認)はgateway復旧まで一時保留し、Picard/Admiralの解決(tailscale serve一時停止→
+gateway再バインド→serve復元、等)を待って再開する。
+
+**判定への影響**: DoD#4の本体(Step5)は解決前に実測PASS済みであり、この環境ブロッカーは
+task_153の5件のコードバグ(既報告)とは別カテゴリの「amun環境側の潜在的ポート競合」であって、
+今回のリワーク修正の合否判定には含めない(Riker裁定に同意)。
+
+## ★緊急対応(Picard指示・順序前倒し実施): Step8・Step9 — PASS
+
+Picardの緊急指示によりStep6/7より先にStep8・Step9を実施(Scheduled Taskがgateway down状態のまま
+次回発火し偽警報ループになるリスクを断つため)。
+
+### Step8: ntfy-sink撤去 — PASS
+```
+$ ssh amun 'docker stop ntfy-sink'
+ntfy-sink
+$ ssh amun 'docker ps --format "{{.Names}}"'
+taskvia-taskvia-1
+taskvia-redis-http-1
+taskvia-postgres-1
+taskvia-redis-1
+ergo
+n8n-n8n-1
+n8n-postgres-1
+```
+docker ps に ntfy-sink が含まれないことを確認(--rmにより自動削除)。
+
+### Step9: Scheduled Task解除 — PASS(classifierブロックなし・Picard事前承認が効いたと推定)
+```
+$ ssh amun '.../unregister-task.ps1'
+UNREGISTER-TASK: name=Taskvia-Watchdog-Phase0 status=deleted
+EXIT=0
+
+$ ssh amun '.../schtasks.exe /Query /TN "Taskvia-Watchdog-Phase0" ...'
+エラー: 指定されたファイルが見つかりません。
+EXIT=1
+```
+unregister実行=EXIT0・その後の/Query=EXIT非1(タスク不在確認)。**5分毎の偽警報ループのリスクは解消**。
+
+## Picard裁定の反映(記録)
+
+- DoD#4はStep5のPASS実測をもって充足と裁定。
+- Step6・Step7・Step7.5・Step10は「FAILED」ではなく「BLOCKED」として記録
+  (原因=amun環境のtailscale serveとport443競合。task_153の5件のコードバグとは別カテゴリ)。
+- ポート変更等での回避策は禁止(Picard裁定)。gateway/tailscale競合の解決を待って再開する。
+- Phase4Rは現時点で未完了(gateway復旧待ち)。
