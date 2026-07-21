@@ -392,3 +392,144 @@ Received: "{"status":"ok"}"
 
 **е€¤е®љ**: Test Files 1 failed(ж–°и¦Џгѓ•г‚Ўг‚¤гѓ«гЃ®гЃї) | 7 passed(ж—ўе­гѓ•г‚Ўг‚¤гѓ«е…ЁгЃ¦)гЂ‚
 Tests 22 failed | 33 passed(ж—ўе­32д»¶ + ж–°и¦Џ1д»¶еЃ¶з„¶PASS)гЂ‚ж—ўе­32д»¶гЃЇз„Ўе‚·гЂ‚
+
+---
+
+# task_153 Phase1R(Worf, rework) RED вЂ” е®џе‡єеЉ›иЁйЊІ
+
+иїЅиЁ: 2026-07-21 / commit: dee4446(pushжё€гЃїгѓ»origin/feature/task_153) / rework doc: docs/plans/20260721_task153_rework.md
+
+Phase4(Beverly)е·®гЃ—ж€»гЃ—г‚’еЏ—гЃ‘гЃџPicardиЈЃе®љгЃ®е†Ќе·ҐзЁ‹гЂ‚5д»¶гЃ®гѓђг‚°(Beverlyз™єи¦‹4д»¶+Picardж–°и¦Џз™єи¦‹1д»¶
+=гѓђг‚°5гѓ»state file UTCгѓ©г‚¦гѓігѓ‰гѓ€гѓЄгѓѓгѓ—гЃ®+9hгЃљг‚Њ)гЃ®е›ћеё°pinг‚’гЂЃе®џTLSзµЊи·Їг‚’йЂљгЃ™зµ±еђ€гѓ†г‚№гѓ€гЃЁгЃ—гЃ¦ж–°иЁ­гЃ—гЃџгЂ‚
+
+## ж€ђжћњз‰©
+
+- `ops/watchdog/test-watchdog-integration.ps1`(ж–°иЁ­гѓ»UTF-8 BOMд»гЃЌ): е®џTLSзµЊи·Ї7г‚ўг‚µгѓјг‚·гѓ§гѓі
+  (й …з›®1гѓ»2aгѓ»2bгѓ»3гѓ»4гѓ»5гѓ»6)гЂ‚зЁјеѓЌдё­гЃ®amunе®џг‚№г‚їгѓѓг‚ЇгЃёгЃ®е®џHTTPг‚’йЂљгЃ™гЂ‚
+  йљ”й›ў: и‡Єе‰ЌгЃ®дёЂж™‚config/дёЂж™‚state fileгЃ®гЃїдЅїз”ЁгЂЃC:\ProgramData\Taskvia\й…Ќдё‹гЃЇдёЂе€‡и§¦г‚ЊгЃЄгЃ„гЂ‚
+  ntfy_urlгЃЇгѓЂгѓџгѓјдёЌе€°йЃ”е…€гЂ‚ж­ЈгЃ—гЃ„tokenгЃЇcompose.yamlгЃ‹г‚‰е®џиЎЊж™‚гЃ«иЄ­гЃїеЏ–г‚Љ(гѓЏгѓјгѓ‰г‚ігѓјгѓ‰гЃ—гЃЄгЃ„)гЂ‚
+- `ops/watchdog/test-watchdog-lib.ps1`(ж—ўе­29д»¶гЃЇз„Ўе¤‰ж›ґ): `ConvertTo-WatchdogUtcTime`еҐ‘зґ„г‚’2д»¶иїЅеЉ 
+  (compactеЅўејЏ"20260721T063950Z"=гѓђг‚°4 pinгЂЃextendedеЅўејЏ"2026-07-21T06:39:50Z"=гѓђг‚°5 pin)гЂ‚
+  жњЄе®љзѕ©й–ўж•°е‘јгЃіе‡єгЃ—гЃЊterminating errorгЃ«гЃЄг‚‹гЃџг‚ЃAssert-UtcTimeParseгѓгѓ«гѓ‘гѓјгЃ§try/catchдїќи­·гЃ—гЂЃ
+  жњЂзµ‚иЎЊгЃ®TEST-RESULTе‡єеЉ›гЃ«еї…гЃље€°йЃ”гЃ™г‚‹г‚€гЃ†гЃ«гЃ—гЃџгЂ‚
+
+## amun REDе®џжё¬1: test-watchdog-integration.ps1
+
+```
+г‚ігѓћгѓігѓ‰: ssh amun powershell.exe -File test-watchdog-integration.ps1
+```
+
+з”џгѓ­г‚°(CP932ж–‡е­—еЊ–гЃ‘гЃЇжѓіе®ље†…гЂ‚е€¤е®љгЃЇexit codeгЃЁ`TEST-RESULT`иЎЊгЃ®гЃїгЃ§иЎЊгЃ†):
+
+```
+FAIL: ЌЂ–Ъ1: ђі‚µ‚ўtoken‚ЕЋАTLSЊoH(https://localhost/...)‚ЄHTTP200(probe=ok)‚Й“ћ’B‚·‚й(ѓoѓO2 ‰с‹Apin) | expected=<ok> actual=<unreachable>
+FAIL: ЌЂ–Ъ4: ЏШ–ѕЏ‘ЊџЏШcallback‚Є•КѓXѓЊѓbѓhЊД‚СЏo‚µ‚Е—бЉO‰»‚µ‚И‚ў(PSInvalidOperationException‚Є”­ђ¶‚µ‚И‚ў, ѓoѓO2 ‰с‹Apin ? ЌЂ–Ъ1‚Мprobe=ok“ћ’B‚ЕЉm”F)
+FAIL: ЌЂ–Ъ5: state file‚МUTCѓ‰ѓEѓ“ѓhѓgѓЉѓbѓv‚Є•s“®“_(Џ‘Ќћ‚с‚ѕfirst_seen‚Ж“З‚Э–Я‚µЊг‚М’l‚ЄЉ®‘S€к’v, ѓoѓO5 ‰с‹Apin) | expected=<2026-07-20T06:39:50Z> actual=<2026-07-20T15:39:50Z>
+FAIL: ЌЂ–Ъ6: watchdog–{‘М‚р1‰сЋАЌs‚µWATCHDOG-RUN: probe=ok‚Й“ћ’B‚·‚й(E2E“ћ’Bђ«) | expected=<ok> actual=<unreachable>
+FAIL: ЌЂ–Ъ2a: Њлtoken‚ЕЋАTLSЊoH‚ЄHTTP401(probe=unauthorized)‚Й“ћ’B‚·‚й | expected=<unauthorized> actual=<unreachable>
+ok: ЌЂ–Ъ2b: ЊлtokenЋё”sЋћ‚МЏo—Н‚Йtoken’lЃEђЪ‘±•¶Ћљ—сЃE“а•”hostname‚рЉЬ‚Ь‚И‚ў(Ѓ14.2)
+ok: ЌЂ–Ъ3: IP literal(https://127.0.0.1/...)‚Н“ћ’B‚Е‚«‚И‚ў(ѓoѓO1ЃEЉщ’m‚Мђ§–с‚М‰с‹Apin)
+TEST-RESULT: FAIL 2/7
+EXIT=1
+```
+
+**е€¤е®љ**: `TEST-RESULT: FAIL 2/7`, `EXIT=1`гЂ‚7г‚ўг‚µгѓјг‚·гѓ§гѓідё­иЁі(FAILй …з›®гЃ®expected/actualгЃЇmojibakeе†…гЃ гЃЊ
+и‹±ж•°е­—йѓЁе€†гЃ§е€¤иЄ­еЏЇиѓЅ):
+
+| й …з›® | зµђжћњ | е†…е®№ |
+|---|---|---|
+| 1 | **FAIL** | ж­ЈгЃ—гЃ„tokenгЃ§HTTP200е€°йЃ” вЂ” expected=ok actual=unreachable(гѓђг‚°2гЃ§TLSгѓЏгѓігѓ‰г‚·г‚§г‚¤г‚Їе¤±ж•—) |
+| 2a | **FAIL** | иЄ¤tokenгЃ§HTTP401е€°йЃ” вЂ” expected=unauthorized actual=unreachable(гѓђг‚°2гЃ«г‚€г‚Љ401гЃѕгЃ§е€°йЃ”гЃ§гЃЌгЃЄгЃ„гЂЃdocдє€е‘ЉйЂљг‚Љ) |
+| 2b | ok(PASS) | иЄ¤tokenе¤±ж•—ж™‚гЃ®е‡єеЉ›гЃ«token/е†…йѓЁhostname/жЋҐз¶љж–‡е­—е€—г‚’еђ«гЃѕгЃЄгЃ„ |
+| 3 | ok(PASS) | IP literal(127.0.0.1)гЃЇе€°йЃ”гЃ§гЃЌгЃЄгЃ„(гѓђг‚°1гѓ»ж—ўзџҐгЃ®е€¶зґ„pinгЂ‚зЏѕиЎЊг‚ігѓјгѓ‰гЃ§г‚‚ж€ђз«‹) |
+| 4 | **FAIL** | иЁјжЋж›ёж¤њиЁјcallbackгЃЊдѕ‹е¤–еЊ–гЃ—гЃЄгЃ„(й …з›®1гЃ®probe=okе€°йЃ”гЃ§зўєиЄЌгЃ™г‚‹иЁ­иЁ€гЃ®гЃџг‚Ѓй …з›®1гЃЁйЂЈе‹•гЃ—гЃ¦FAIL) |
+| 5 | **FAIL** | state file UTCгѓ©г‚¦гѓігѓ‰гѓ€гѓЄгѓѓгѓ—дёЌе‹•з‚№ вЂ” expected=2026-07-20T06:39:50Z actual=2026-07-20T15:39:50Z
+  (в…гЃЎг‚‡гЃ†гЃ©+9h=JSTг‚Єгѓ•г‚»гѓѓгѓ€е€†гЃљг‚ЊгЃ¦гЃЉг‚ЉгЂЃгѓђг‚°5=ConvertTo-WatchdogUtcгЃ®[datetime]::ParseгЃЊ
+  Zг‚µгѓ•г‚Јгѓѓг‚Їг‚№г‚’гѓ­гѓјг‚«гѓ«е¤‰жЏ›гЃ—гЃ¦гЃ—гЃѕгЃ†дёЌе…·еђ€г‚’гѓ”гѓігѓќг‚¤гѓігѓ€гЃ§е®џиЁј) |
+| 6 | **FAIL** | watchdogжњ¬дЅ“1е›ће®џиЎЊгЃ§WATCHDOG-RUN: probe=okгЃ«е€°йЃ” вЂ” expected=ok actual=unreachable |
+
+rework doc В§4.1гЃ®дє€е‘Љ("й …з›®1гѓ»2гѓ»4гѓ»5гѓ»6гЃЊFAILгЃ—й …з›®3гЃ®гЃїPASSгЃ™г‚‹")гЃЁе®Ње…ЁдёЂи‡ґ
+(й …з›®2гЃЇ2a/2bгЃ«е€†е‰ІгЃ—гЃџгЃЊгЂЃ2aгЃЊFAILгЃ™г‚‹гЃџг‚Ѓй …з›®2е…ЁдЅ“гЃЁгЃ—гЃ¦г‚‚FAILгЃ®дё»ејµгЃЁж•ґеђ€)гЂ‚
+
+## amun REDе®џжё¬2: test-watchdog-lib.ps1(ж—ўе­29д»¶+ж–°и¦Џ2д»¶)
+
+```
+ok: healthy ‚И probe + ђV‘N‚И backup ‚Е‚Н finding 0 ЊЏ
+ok: “ћ’B•s”\‚Е finding 1 ЊЏ
+ok: “ћ’B•s”\‚М dedup_key
+ok: “ћ’B•s”\‚М severity
+ok: 401 ‚М dedup_key
+ok: 401 ‚М severity
+ok: 502 ‚М dedup_key
+ok: redis €ЩЏн‚Е finding 1 ЊЏ
+ok: dependency ‚М dedup_key
+ok: dependency ‚М severity
+ok: dependency_signals ЉO‚М€Л‘¶ђж€ЩЏн‚Н finding ‚Й‚µ‚И‚ў
+ok: backup 27h Њo‰Я‚Е backup_stale
+ok: backup 25h ‚Ни‡’l“а‚Е finding 0 ЊЏ
+ok: backup ‚Є€к“x‚а–і‚ўЏкЌ‡‚а backup_stale
+ok: manifest “ЗЋж•s”\‚Е‚Н finding ‚Н 1 ЊЏ‚М‚Э(backup_stale ‚ЖЏd•Ў”­•с‚µ‚И‚ў)
+ok: manifest “ЗЋж•s”\‚Е backup_marker_unreadable
+ok: restore test 36 “ъ‚Е restore_test_stale
+ok: ђV‹K finding ‚Е’К’m 1 ЊЏ
+ok: ђV‹K finding ‚М kind ‚Н alert
+ok: ђV‹K finding ‚М dedup_key
+ok: backoff(15•Є) –ўЊo‰Я‚М 5 •ЄЊг‚НЌД’К’m‚µ‚И‚ў
+ok: backoff(15•Є) Њo‰ЯЊг‚НЌД’К’m‚·‚й
+ok: 2 ‰с–Ъ’К’mЊг‚Н 30 •Є•K—v(20 •Є‚Е‚НЌД’К’m‚µ‚И‚ў)
+ok: alert_max_notifications=5 “ћ’BЊг‚Н’К’m‚µ‚И‚ў
+ok: •њ‹ЊЋћ‚Й’К’m 1 ЊЏ
+ok: •њ‹ЊЋћ‚М kind ‚Н resolved
+ok: resolved ‘—ђMЊг‚Н“с“x‚Ж’К’m‚µ‚И‚ў
+ok: ”z‘—Ћё”s‚Є•К signal ‚Ж‚µ‚Д‹L^‚і‚к‚й
+ok: ”z‘—Ћё”sЊг‚Н backoff ‚р‘Т‚Ѕ‚ёЋџ‰сЌД‘—‚·‚й
+FAIL: ConvertTo-WatchdogUtcTime: compactЊ`Ћ®(20260721T063950Z)‚Є2026-07-21 06:39:50 Kind=Utc(ѓoѓO4 pin) | error=<—pЊк 'ConvertTo-WatchdogUtcTime' ‚НЃAѓRѓ}ѓ“ѓhѓЊѓbѓgЃAЉЦђ”ЃAѓXѓNѓЉѓvѓg ѓtѓ@ѓCѓ‹ЃA‚Ь‚Ѕ‚Н‘ЂЌм‰В”\‚ИѓvѓЌѓOѓ‰ѓЂ‚М–ј‘O‚Ж‚µ‚Д”FЋЇ‚і‚к‚Ь‚№‚сЃB–ј‘O‚Єђі‚µ‚­‹LЏq‚і‚к‚Д‚ў‚й‚±‚Ж‚рЉm”F‚µЃAѓpѓX‚ЄЉЬ‚Ь‚к‚Д‚ў‚йЏкЌ‡‚Н‚»‚МѓpѓX‚Єђі‚µ‚ў‚±‚Ж‚рЉm”F‚µ‚Д‚©‚зЃAЌДЋЋЌs‚µ‚Д‚­‚ѕ‚і‚ўЃB>
+FAIL: ConvertTo-WatchdogUtcTime: extendedЊ`Ћ®(2026-07-21T06:39:50Z)‚Є2026-07-21 06:39:50 Kind=Utc(ѓoѓO5 pin) | error=<—pЊк 'ConvertTo-WatchdogUtcTime' ‚НЃAѓRѓ}ѓ“ѓhѓЊѓbѓgЃAЉЦђ”ЃAѓXѓNѓЉѓvѓg ѓtѓ@ѓCѓ‹ЃA‚Ь‚Ѕ‚Н‘ЂЌм‰В”\‚ИѓvѓЌѓOѓ‰ѓЂ‚М–ј‘O‚Ж‚µ‚Д”FЋЇ‚і‚к‚Ь‚№‚сЃB–ј‘O‚Єђі‚µ‚­‹LЏq‚і‚к‚Д‚ў‚й‚±‚Ж‚рЉm”F‚µЃAѓpѓX‚ЄЉЬ‚Ь‚к‚Д‚ў‚йЏкЌ‡‚Н‚»‚МѓpѓX‚Єђі‚µ‚ў‚±‚Ж‚рЉm”F‚µ‚Д‚©‚зЃAЌДЋЋЌs‚µ‚Д‚­‚ѕ‚і‚ўЃB>
+TEST-RESULT: FAIL 29/31
+EXIT=1
+```
+
+**е€¤е®љ**: `TEST-RESULT: FAIL 29/31`, `EXIT=1`гЂ‚`ok:` иЎЊ29д»¶(ж—ўе­29д»¶гЂЃ1д»¶г‚‚еЈЉг‚ЊгЃ¦гЃ„гЃЄгЃ„)+
+`FAIL:` иЎЊ2д»¶(ж–°и¦ЏиїЅеЉ гЃ—гЃџ`ConvertTo-WatchdogUtcTime`еҐ‘зґ„2д»¶гЂЃгЃ„гЃљг‚Њг‚‚
+"term 'ConvertTo-WatchdogUtcTime' is not recognized"(CommandNotFoundExceptionгЃ®гѓЎгѓѓг‚»гѓјг‚ёгЂЃ
+watchdog-lib.ps1гЃ«жњЄе®џиЈ…гЃ®гЃџг‚ЃRED)гЂ‚ж—ўе­29д»¶гЃЇе®Ње…ЁгЃ«з„Ўе‚·гЂ‚
+
+## йљ”й›ўгЃ®зўєиЄЌ
+
+гѓ†г‚№гѓ€е®џиЎЊе‰ЌеѕЊгЃ§amunгЃ®гѓ‡гѓ—гѓ­г‚¤жё€гЃїгѓ•г‚Ўг‚¤гѓ«гЃ«е¤‰еЊ–гЃЊгЃЄгЃ„гЃ“гЃЁг‚’зўєиЄЌ(г‚їг‚¤гѓ г‚№г‚їгѓігѓ—гѓ»г‚µг‚¤г‚єдёЌе¤‰):
+
+```
+
+FullName                                    Length LastWriteTime      
+--------                                    ------ -------------      
+C:\ProgramData\Taskvia\watchdog-state.json    1746 2026/07/21 16:04:32
+C:\ProgramData\Taskvia\watchdog-config.json    581 2026/07/21 14:44:27
+
+
+```
+
+гѓ†г‚№гѓ€е®џиЎЊе‰ЌгЃ®е®џжё¬(жњ¬гѓџгѓѓг‚·гѓ§гѓій–‹е§‹ж™‚з‚№)гЃЁжЇ”ијѓгЃ—гЃ¦ `watchdog-state.json`(1746 bytes,
+2026/07/21 16:04:32)гѓ»`watchdog-config.json`(581 bytes, 2026/07/21 14:44:27)гЃЁг‚‚гЃ«
+г‚µг‚¤г‚єгѓ»LastWriteTimeгЃЊдёЂи‡ґ вЂ” жњ¬гѓ†г‚№гѓ€гЃ«г‚€г‚‹ж›ёгЃЌиѕјгЃїгЃЊдёЂе€‡з™єз”џгЃ—гЃ¦гЃ„гЃЄгЃ„гЃ“гЃЁг‚’е®џжё¬гЃ§зўєиЄЌгЃ—гЃџгЂ‚
+
+## pushзўєиЄЌ
+
+```
+$ git ls-remote origin feature/task_153
+dee444690403ede9b891ead03c189c1d51a00009  refs/heads/feature/task_153
+```
+
+commit dee4446 гЃЊ origin гЃ«е€°йЃ”гЃ—гЃ¦гЃ„г‚‹гЃ“гЃЁг‚’зўєиЄЌжё€гЃїгЂ‚
+
+## Phase2R(Geordi)гЃёгЃ®з”ігЃ—йЂЃг‚Љ
+
+- `test-watchdog-integration.ps1`гЃЇGeordiгЃЊе¤‰ж›ґгЃ™г‚‹еї…и¦ЃгЃЇгЃЄгЃ„(гЃ“гЃ®гЃѕгЃѕ`taskvia-watchdog.ps1`гЃЁ
+  `watchdog-lib.ps1`гЃ®дї®ж­Јг‚’ж¤њиЁјгЃ™г‚‹)гЂ‚MacеЃґгЃ§гЃЇе®џиЎЊгЃ§гЃЌгЃЄгЃ„гЃџг‚ЃгЂЃGREENзўєиЄЌгЃЇamunе®џж©џгЃ§иЎЊгЃ†гЃ“гЃЁгЂ‚
+- `ConvertTo-WatchdogUtcTime`гЃЇ`watchdog-lib.ps1`(зґ”зІ‹й–ўж•°гѓ»I/OгЃЄгЃ—)гЃёе®џиЈ…гЃ™г‚‹гЃ“гЃЁгЂ‚
+  еј•ж•°=ж–‡е­—е€—1гЃ¤гЂЃж€»г‚ЉеЂ¤=`[datetime]`(Kind=Utc)гЂ‚е®џиЈ…ж–№ејЏ(AssumeUniversal/AdjustToUniversal/
+  ж‰‹е‹•UTCжЊ‡е®љз­‰)гЃЇе•Џг‚ЏгЃЄгЃ„ вЂ” 2гЃ¤гЃ®еЅўејЏ(compact/extended)еЏЊж–№гЃЊ
+  `2026-07-21 06:39:50 Kind=Utc`гЃ«гЃЄг‚‹гЃ“гЃЁгЃ®гЃїгЃЊеҐ‘зґ„гЂ‚
+- `test-watchdog-integration.ps1`гЃ®Run A/B/CгЃЇгЃ„гЃљг‚Њг‚‚`taskvia-watchdog.ps1`г‚’гЃќгЃ®гЃѕгЃѕ
+  (call operator `&`гЃ§)е®џиЎЊгЃ—гЃ¦е®џгѓ—гѓ­гѓјгѓ–зµђжћњг‚’и¦іжё¬гЃ™г‚‹иЁ­иЁ€гЂ‚Phase2RгЃ§гЃ®дї®ж­ЈгЃЊ
+  `taskvia-watchdog.ps1`гЃ®TLSиЁ­е®љгѓ»иЁјжЋж›ёcallbackгѓ»`Read-WatchdogState`/`Save-WatchdogState`гЃ®
+  ж—Ґд»е¤‰жЏ›е‘јгЃіе‡єгЃ—гЃ«еЏЌж гЃ•г‚Њг‚ЊгЃ°гЂЃгЃ“гЃ®гѓ†г‚№гѓ€гЃЇи‡Єе‹•зљ„гЃ«GREENеЊ–гЃ™г‚‹(жњ¬гѓ†г‚№гѓ€и‡ЄдЅ“гЃ®е¤‰ж›ґгЃЇдёЌи¦Ѓ)гЂ‚
