@@ -23,13 +23,43 @@ $ErrorActionPreference = 'Stop'
 #    5.1 の Invoke-WebRequest には -SkipCertificateCheck が無いため、
 #    ServerCertificateValidationCallback を「loopback 宛てに限り」緩める。
 #    loopback 以外(= ntfy への送信)では通常の証明書検証を維持すること。
-[Net.ServicePointManager]::ServerCertificateValidationCallback = {
-    param($senderObj, $cert, $chain, $sslErrors)
-    $uri = $null
-    if ($senderObj -is [System.Net.HttpWebRequest]) { $uri = $senderObj.RequestUri }
-    if ($null -ne $uri -and ($uri.Host -eq '127.0.0.1' -or $uri.Host -eq 'localhost')) { return $true }
-    return ($sslErrors -eq [System.Net.Security.SslPolicyErrors]::None)
+#
+#    task_153 rework バグ2: 生 PowerShell scriptblock を代入すると、TLS ハンドシェイクを
+#    処理する別スレッドから呼ばれた際に PSInvalidOperationException(runspace 不在)で
+#    落ち、SendFailure になる(Picard が amun 実機で実証)。scriptblock はランタイム依存
+#    (呼び出し元スレッドに runspace が必要)なため、Add-Type の C# 静的メソッド + delegate に
+#    置換してこの依存を断つ。PowerShell 7 への移行・-SkipCertificateCheck は不要かつ禁止
+#    (PS 5.1 のままで TLS ハンドシェイク成功・401 到達を実測済み)。
+if (-not ([System.Management.Automation.PSTypeName]'Taskvia.Watchdog.CertValidation').Type) {
+    Add-Type -TypeDefinition @"
+using System;
+using System.Net;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
+
+namespace Taskvia.Watchdog
+{
+    public static class CertValidation
+    {
+        public static bool Validate(object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors)
+        {
+            var request = sender as HttpWebRequest;
+            if (request != null)
+            {
+                string host = request.RequestUri.Host;
+                if (host == "127.0.0.1" || host == "localhost")
+                {
+                    return true;
+                }
+            }
+            return sslPolicyErrors == SslPolicyErrors.None;
+        }
+    }
 }
+"@
+}
+[Net.ServicePointManager]::ServerCertificateValidationCallback =
+    [Delegate]::CreateDelegate([Net.Security.RemoteCertificateValidationCallback], [Taskvia.Watchdog.CertValidation], 'Validate')
 
 function Read-WatchdogConfig {
     param([string]$Path)
@@ -37,12 +67,6 @@ function Read-WatchdogConfig {
         throw "watchdog config not found: $Path"
     }
     return Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
-}
-
-function ConvertTo-WatchdogUtc {
-    param([string]$Value)
-    if ([string]::IsNullOrEmpty($Value)) { return $null }
-    return [datetime]::SpecifyKind([datetime]::Parse($Value), 'Utc')
 }
 
 function ConvertFrom-WatchdogUtc {
@@ -68,17 +92,17 @@ function Read-WatchdogState {
             severity          = $e.severity
             title             = $e.title
             message           = $e.message
-            first_seen        = ConvertTo-WatchdogUtc $e.first_seen
-            last_seen         = ConvertTo-WatchdogUtc $e.last_seen
+            first_seen        = ConvertTo-WatchdogUtcTime $e.first_seen
+            last_seen         = ConvertTo-WatchdogUtcTime $e.last_seen
             notify_count      = $e.notify_count
-            last_notified_at  = ConvertTo-WatchdogUtc $e.last_notified_at
+            last_notified_at  = ConvertTo-WatchdogUtcTime $e.last_notified_at
             pending_resolved  = [bool]$e.pending_resolved
         }
     }
 
     $deliveryFailures = [pscustomobject]@{
         count          = $(if ($raw.delivery_failures.PSObject.Properties.Name -contains 'count') { $raw.delivery_failures.count } else { 0 })
-        last_failed_at = ConvertTo-WatchdogUtc $raw.delivery_failures.last_failed_at
+        last_failed_at = ConvertTo-WatchdogUtcTime $raw.delivery_failures.last_failed_at
     }
 
     return [pscustomobject]@{
@@ -160,9 +184,7 @@ function Get-WatchdogBackup {
             try {
                 $m = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
                 if (($m.PSObject.Properties.Name -contains 'completed_at') -and $m.completed_at) {
-                    $dt = [datetime]::SpecifyKind(
-                        [datetime]::ParseExact($m.completed_at, 'yyyyMMddTHHmmssZ', [Globalization.CultureInfo]::InvariantCulture),
-                        'Utc')
+                    $dt = ConvertTo-WatchdogUtcTime $m.completed_at
                     if ($null -eq $latestCompletedAt -or $dt -gt $latestCompletedAt) { $latestCompletedAt = $dt }
                 }
             } catch {
@@ -187,9 +209,7 @@ function Get-WatchdogBackup {
                 $hasResult = $entry.PSObject.Properties.Name -contains 'result'
                 $hasCompletedAt = $entry.PSObject.Properties.Name -contains 'completed_at'
                 if ($hasResult -and $entry.result -eq 'success' -and $hasCompletedAt -and $entry.completed_at) {
-                    $dt = [datetime]::SpecifyKind(
-                        [datetime]::ParseExact($entry.completed_at, 'yyyyMMddTHHmmssZ', [Globalization.CultureInfo]::InvariantCulture),
-                        'Utc')
+                    $dt = ConvertTo-WatchdogUtcTime $entry.completed_at
                     if ($null -eq $latestRestoreTestAt -or $dt -gt $latestRestoreTestAt) { $latestRestoreTestAt = $dt }
                 }
             } catch {

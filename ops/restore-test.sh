@@ -59,7 +59,7 @@ done
 if [ "$READY" -ne 1 ]; then
   echo "FATAL: isolated postgres did not become ready in time" >&2
   COMPLETED_AT=$(date -u +%Y%m%dT%H%M%SZ)
-  jq -n --arg started_at "$STARTED_AT" --arg completed_at "$COMPLETED_AT" \
+  jq -nc --arg started_at "$STARTED_AT" --arg completed_at "$COMPLETED_AT" \
     --arg owner_id "$OWNER_ID" --arg backup_file "$(basename "$DUMP_FILE")" \
     --arg result "fail" --arg reason "isolated_postgres_not_ready" \
     '{started_at:$started_at, completed_at:$completed_at, owner_id:$owner_id, backup_file:$backup_file, result:$result, reason:$reason}' \
@@ -92,7 +92,7 @@ else
   echo "MARKER MISMATCH: actual=$ACTUAL_HASH expected=$EXPECTED_HASH" >&2
 fi
 
-jq -n --arg started_at "$STARTED_AT" --arg completed_at "$COMPLETED_AT" \
+jq -nc --arg started_at "$STARTED_AT" --arg completed_at "$COMPLETED_AT" \
   --arg owner_id "$OWNER_ID" --arg backup_file "$(basename "$DUMP_FILE")" \
   --arg result "$RESULT" --arg expected_hash "$EXPECTED_HASH" --arg actual_hash "$ACTUAL_HASH" \
   --arg isolated_volume "$ISOLATED_VOLUME" \

@@ -20,6 +20,34 @@ function Get-WatchdogPropertyNames {
     return $names
 }
 
+function ConvertTo-WatchdogUtcTime {
+    # task_153 rework バグ4/5 の修正: [datetime]::Parse / ParseExact(書式 'Z' を UTC offset
+    # 指示子として解釈)はロケールのタイムゾーン(JST)へ +9h 変換したうえで Kind=Local を
+    # 返すため、その後の SpecifyKind(...,'Utc') は値を補正せずラベルのみ書き換えてしまい、
+    # 実際には +9h ずれた時刻が Utc として扱われる。
+    # ★実測で判明: ParseExact の書式文字列に無引用の 'Z' を置くと、DateTimeStyles.None
+    # であっても .NET が UTC 指示子として特別扱いし、ローカルタイムゾーン(JST)へ +9h
+    # 変換したうえで Kind=Local を返す(amun実機で実証・単なる推測ではない)。
+    # 'Z' を単一引用符で囲んでリテラル文字として明示することで初めて値が変換されず
+    # Kind=Unspecified のまま返る。そこへ SpecifyKind(...,'Utc') でラベルを付与する
+    # (書き込み側 ConvertFrom-WatchdogUtc の ToString('...Z') と対になる不動点実装)。
+    # 対応形式: compact(ops/backup.sh 等) "yyyyMMddTHHmmssZ" / extended(state file) "yyyy-MM-ddTHH:mm:ssZ"。
+    param([string]$Value)
+    if ([string]::IsNullOrEmpty($Value)) { return $null }
+
+    $formats = @("yyyyMMddTHHmmss'Z'", "yyyy-MM-ddTHH:mm:ss'Z'")
+    foreach ($fmt in $formats) {
+        try {
+            $parsed = [datetime]::ParseExact(
+                $Value, $fmt, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::None)
+            return [datetime]::SpecifyKind($parsed, 'Utc')
+        } catch {
+            continue
+        }
+    }
+    throw "ConvertTo-WatchdogUtcTime: unsupported date format: $Value"
+}
+
 function New-WatchdogFinding {
     param([string]$DedupKey, [string]$Severity, [string]$Title, [string]$Message)
     return [pscustomobject]@{
