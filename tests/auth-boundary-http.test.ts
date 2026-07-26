@@ -55,6 +55,9 @@ const ROOT = process.cwd();
 function mockResultFor(command: unknown[]): unknown {
   if (command[0] === "script" && command[1] === "load") return "mock-sha-cards";
   if (command[0] === "evalsha") return [];
+  // task_157: GET /api/logs は agent:logs を lrange で読む(cardsのscriptLoad+evalshaとは
+  // 別コマンド)。空配列を返せば route.ts は早期return {logs: []} するため200で確認できる。
+  if (command[0] === "lrange") return [];
   return null;
 }
 
@@ -256,5 +259,27 @@ describe("実HTTP認証境界test: proxy.ts matcherとRoute Handler認証の競�
       redirect: "manual",
     });
     expect(res.status).toBe(200);
+  });
+
+  // ★task_157: GET /api/logs は src/proxy.ts の matcher 対象外(/api/** 除外)のため、
+  // route handler 内部で auth() を呼ぶ方式で修正した。proxy を経由しない実HTTP経路でも
+  // 実際に session チェックが効くことを、単体handler test(logs-route-auth.test.ts、
+  // @/auth をモック)とは独立に、実 next-auth/jwt encode() で偽装した session cookie を使い
+  // 実サーバープロセスに対して証明する。
+
+  it("session cookieなしのGET /api/logsは401(未ログイン状態でLogsタブを叩いても無認証で漏洩しないことの実HTTP証明)", async () => {
+    const res = await fetch(`${BASE_URL}/api/logs`, { redirect: "manual" });
+    expect(res.status).toBe(401);
+  });
+
+  it("session cookieありのGET /api/logsは200でログイン済みLogsタブが引き続き動作する(実HTTP証明)", async () => {
+    const cookie = await forgeSessionCookie();
+    const res = await fetch(`${BASE_URL}/api/logs`, {
+      headers: { Cookie: cookie },
+      redirect: "manual",
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body.logs)).toBe(true);
   });
 });
