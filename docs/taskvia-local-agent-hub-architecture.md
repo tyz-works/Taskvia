@@ -1033,7 +1033,8 @@ Phase 0 DoD:
 - Windows watchdog が NAT mode で `https://localhost/internal/health/watchdog` に到達でき、認証失敗時は情報を返さない
   - 注（task_164・乖離1 案Y の提督裁定 2026-07-28）: 改訂前は `https://127.0.0.1/...` と IP literal を指定していたが、実装は `localhost` で動作しており、gateway 証明書に IP SAN が無いため IP literal では TLS が成立しない。SNI はクライアントが自由に設定できるフィールドでありアクセス制御としては機能しないため、両者にセキュリティ境界上の差は実質的に無い。文言を実装に合わせる
 - token 未設定・空白の production profile では、`isAuthorized()` を経由する全 API が `401` を返す（fail-closed）
-  - 注（task_164・乖離2 + 解除条件3 の提督裁定 2026-07-28）: 改訂前は「起動しない」だったが、実装はプロセス自体は起動し `/api/health` が `503` を返すのみで、他 API は無認証で全許可（open mode）だった。この非対称な劣化を `src/lib/auth.ts` の fail-closed 化で解消し、文言を実装の到達点に合わせた
+  - 注（task_164・乖離2 + 解除条件3 の提督裁定 2026-07-28）: 改訂前は「起動しない」だったが、実装はプロセス自体は起動し `/api/health` が `503` を返すのみで、他 API は無認証で全許可（open mode）だった。この非対称な劣化を `src/lib/auth.ts` の fail-closed 化で解消し、文言を実装の到達点に合わせた。**本項の対象は `isAuthorized()` を経由する API 平面のみである。** UI ページ平面（`src/proxy.ts` の NextAuth matcher 経路）は本項の対象外であり、`src/proxy.ts:10-11` に同型の open-mode 分岐（token 未設定時に無認証で通過）が存在するが、本ミッションでは変更していない
+  - ★表現上の注記: 本項は token 未設定という起動形態に対する防御を追加したものである。Vercel 本番・amun 実機のいずれも `TASKVIA_TOKEN` が常時 SET のため、現行の本番2環境では挙動は変わらない（「本番の穴を塞いだ」という意味ではない）
 - web / job runner、backup の疑似障害が Taskvia 外の channel へ通知される
   - 注（task_164・乖離5 の提督裁定 2026-07-28）: **job runner は Phase 0 の構成要素に含まれないため、Phase 0 では該当なし**。job runner の最小実装は Phase 1、その監視能力は Phase 3 で計画されている（§20 各 Phase 参照）。本項の Phase 0 における判定対象は web と backup のみである
 - 空環境への restore test が 1 回成功している
