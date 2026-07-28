@@ -66,8 +66,8 @@ macOS + colima の検証結果は構成作成の参考にはなるが、WSL2 NAT
 
 - Windows watchdog から `https://127.0.0.1/internal/health/watchdog` へ到達できる。
 - watchdog token が正しければ health response、未設定または不正なら 401 を返す。
-- LAN から Taskvia gateway の許可済み `443` へだけ到達できる。
-- PostgreSQL `5432`、Redis `6379`、n8n内部 `5678`、Taskvia内部 `3000`へLANから到達できない。
+- **Taskvia 外部の端末から**（LAN / tailnet いずれか。**実運用に使用している平面を必ず含むこと**）、`443` 以外の Taskvia 関連 port（PostgreSQL `5432`、Redis `6379`、n8n 内部 `5678`、Taskvia 内部 `3000` を含む）へ到達できない。
+  - 注（task_164・乖離3/乖離4 の提督裁定 2026-07-28）: 本項は「`443` 以外へ到達できない」という**否定側の境界条件**のみを要求する。`443` が外部から到達**できる**ことは Phase 0 の要件ではない。改訂前は「LAN から `443` へだけ到達できる」と肯定側を要件化し、かつ LAN 平面のみを指定していたが、実運用は tailnet 専用であり、検査対象と運用実態が一致していなかった。実証は実運用している到達平面で行う
 - WindowsがPublic networkの場合はgatewayにも到達できない。
 - WSL2、Docker、Windowsの再起動後にgatewayとlocalhost forwardingが自動復旧する。
 - Web、job runner、PostgreSQLを意図的に停止すると、独立watchdogがTaskvia外のchannelへ通知する。
