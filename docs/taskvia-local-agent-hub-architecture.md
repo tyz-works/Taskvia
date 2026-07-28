@@ -1028,10 +1028,14 @@ Temporal 導入後も Outbox、cache、軽量保守のための `taskvia-job-run
 
 Phase 0 DoD:
 
-- LAN の別端末から `443` 以外の Taskvia 関連 port に到達できない
-- Windows watchdog が NAT mode で `https://127.0.0.1/internal/health/watchdog` に到達でき、認証失敗時は情報を返さない
-- token 未設定の production profile が起動しない
+- **Taskvia 外部の端末から**（LAN / tailnet いずれか。**実運用に使用している平面を必ず含むこと**）、`443` 以外の Taskvia 関連 port に到達できない
+  - 注（task_164・乖離3/乖離4 の提督裁定 2026-07-28）: 本項は「`443` 以外へ到達できない」という**否定側の境界条件**のみを要求する。`443` が外部から到達**できる**ことは Phase 0 の要件ではない（現構成では `443` も到達不可であり、要求より厳しい状態にある）。また、実証は**実運用している到達平面**で行う。改訂前の文言は LAN 平面のみを指定していたが、実運用は tailnet 専用であり、検査対象と運用実態が一致していなかった
+- Windows watchdog が NAT mode で `https://localhost/internal/health/watchdog` に到達でき、認証失敗時は情報を返さない
+  - 注（task_164・乖離1 案Y の提督裁定 2026-07-28）: 改訂前は `https://127.0.0.1/...` と IP literal を指定していたが、実装は `localhost` で動作しており、gateway 証明書に IP SAN が無いため IP literal では TLS が成立しない。SNI はクライアントが自由に設定できるフィールドでありアクセス制御としては機能しないため、両者にセキュリティ境界上の差は実質的に無い。文言を実装に合わせる
+- token 未設定・空白の production profile では、`isAuthorized()` を経由する全 API が `401` を返す（fail-closed）
+  - 注（task_164・乖離2 + 解除条件3 の提督裁定 2026-07-28）: 改訂前は「起動しない」だったが、実装はプロセス自体は起動し `/api/health` が `503` を返すのみで、他 API は無認証で全許可（open mode）だった。この非対称な劣化を `src/lib/auth.ts` の fail-closed 化で解消し、文言を実装の到達点に合わせた
 - web / job runner、backup の疑似障害が Taskvia 外の channel へ通知される
+  - 注（task_164・乖離5 の提督裁定 2026-07-28）: **job runner は Phase 0 の構成要素に含まれないため、Phase 0 では該当なし**。job runner の最小実装は Phase 1、その監視能力は Phase 3 で計画されている（§20 各 Phase 参照）。本項の Phase 0 における判定対象は web と backup のみである
 - 空環境への restore test が 1 回成功している
 - 3 owner の実 identity / alert destination が未設定なら deployment validation が失敗する
 
@@ -1047,6 +1051,8 @@ Phase 0 DoD:
 - PostgreSQL を正本へ変更
 - Approval Token / ntfy の切替 runbook と一括 cutover
 - legacy token の絶対失効日時、startup validation、request-time expiry enforcement
+- **PostgreSQL を watchdog の `dependency_signals` へ実チェックとして配線する**（`route.ts` の `postgresStatus: DependencyStatus = "unreachable"` 固定値 placeholder を実接続確認へ置換）。**Phase 1 完了後への先送りは禁止**（task_164・解除条件6 の提督裁定 2026-07-28）
+  - 理由: Phase 1 は PostgreSQL を system-of-record へ昇格させる工程である。監視から除外されたまま昇格させると、「正本なのに誰も監視していない」状態を新たに固定化してしまう。A7 の UNMET 原因と Phase 1 は独立した層ではなく直接連動する
 
 移行中に Redis と PostgreSQL の両方へ業務状態を dual-write してはならない。shadow read と検証は許可するが、書込の正本は常に一方だけにする。cutover release で全 Approval mutation、Action Token、Event、通知要求を PostgreSQL 経路へ切り替え、旧 Redis Approval write と直接 ntfy publish を同時に停止する。rollback 時も書込先を一方へ戻し、両経路を並行稼働させない。
 
